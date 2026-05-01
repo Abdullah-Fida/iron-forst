@@ -1,68 +1,68 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../lib/db';
-import { getInitials, getCurrentMonth, getCurrentYear } from '../../lib/utils';
-import { STAFF_ROLES } from '../../lib/constants';
-import { MemberSkeleton, StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
-import { useSync } from '../../hooks/useSync';
+import { StateView } from '../../components/common/StateView';
+import { getInitials } from '../../lib/utils';
+import { STAFF_ROLES } from '../../lib/constants';
+import api from '../../lib/api';
 import '../../styles/members.css';
 import '../../styles/loading.css';
 
 export default function StaffListPage() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState('all');
-  const month = getCurrentMonth();
-  const year = getCurrentYear();
-  const { isSyncing } = useSync();
+  const [staffData, setStaffData] = useState(null);
 
-  // ── LIVE QUERY: Reactive to Dexie changes (auto-refreshes on add/update/delete) ──
-  const staffData = useLiveQuery(async () => {
-    try {
-      const localStaff = await db.staff.toArray();
-      const localPayments = await db.staff_payments.toArray();
-
-      // If DB is empty and we are syncing, return null so loader shows
-      if (localStaff.length === 0 && isSyncing) return null;
-      let activeStaff = localStaff.filter(s => s.status !== 'deleted');
-
-      let results = activeStaff.map(s => {
-        const staffPayments = localPayments.filter(p => p.staff_id === s.id);
+  useEffect(() => {
+    let isMounted = true;
+    const fetchStaff = async () => {
+      try {
+        const res = await api.get('/staff');
+        if (!isMounted) return;
         
-        let isPaid = false;
-        if (staffPayments.length > 0) {
-          const sorted = [...staffPayments].sort((a, b) => new Date(b.paid_date) - new Date(a.paid_date));
-          const lastDate = new Date(sorted[0].paid_date);
-          const today = new Date();
-          today.setHours(0,0,0,0);
-          lastDate.setHours(0,0,0,0);
-          const diffDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
-          isPaid = diffDays <= 30;
-        }
+        let localStaff = res.data.data || [];
+        let activeStaff = localStaff.filter(s => s.status !== 'deleted');
 
-        return { ...s, staff_payments: staffPayments, isPaid };
-      });
+        let results = activeStaff.map(s => {
+          const staffPayments = s.staff_payments || [];
+          
+          let isPaid = false;
+          if (staffPayments.length > 0) {
+            const sorted = [...staffPayments].sort((a, b) => new Date(b.paid_date) - new Date(a.paid_date));
+            const lastDate = new Date(sorted[0].paid_date);
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            lastDate.setHours(0,0,0,0);
+            const diffDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+            isPaid = diffDays <= 30;
+          }
 
-      if (filter !== 'all') {
-        results = results.filter(s => s.status === filter);
+          return { ...s, staff_payments: staffPayments, isPaid };
+        });
+
+        setStaffData(results);
+      } catch (err) {
+        console.error('Staff API error:', err);
+        if (isMounted) setStaffData([]);
       }
+    };
+    fetchStaff();
+    return () => { isMounted = false; };
+  }, []);
 
-      return results;
-    } catch (e) {
-      console.error('Staff live query error:', e);
-      return [];
-    }
-  }, [filter, month, year, isSyncing]);
-
-  const loading = !staffData && isSyncing;
+  const loading = !staffData;
   const staff = staffData || [];
+  
+  let filteredStaff = staff;
+  if (filter !== 'all') {
+    filteredStaff = staff.filter(s => s.status === filter);
+  }
 
   return (
     <div className="page-container">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-lg)' }}>
-        <div><h1 className="page-title">Staff</h1><p className="page-subtitle">{staff.length} staff members</p></div>
+        <div><h1 className="page-title">Staff</h1><p className="page-subtitle">{filteredStaff.length} staff members</p></div>
         <button className="btn btn-primary btn-sm" onClick={() => navigate('/staff/add')}><UserPlus size={16} /> Add</button>
       </div>
 
@@ -79,14 +79,14 @@ export default function StaffListPage() {
           <div style={{ padding: '60px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <ModernLoader type="morph" text="Syncing Staff..." />
           </div>
-        ) : staff.length === 0 ? (
+        ) : filteredStaff.length === 0 ? (
           <StateView 
             type="empty" 
             title="No staff members found" 
             description={filter !== 'all' ? "Try changing your filter settings." : "Start by adding your first gym staff member."}
           />
         ) : (
-          staff.map(s => {
+          filteredStaff.map(s => {
             const roleInfo = STAFF_ROLES.find(r => r.value === s.role);
             const isPaid = s.isPaid;
             return (

@@ -3,7 +3,7 @@
  * Handles fingerprint registration and identification via browser WebAuthn API.
  */
 
-import { db } from './db';
+import api from './api';
 
 // Helper to convert ArrayBuffer to Base64 (needed for storing in DB)
 function bufferToBase64(buffer) {
@@ -88,7 +88,8 @@ export async function identifyFingerprint() {
   const support = await checkBiometricSupport();
   if (!support.supported) throw new Error(support.reason);
 
-  const membersWithFingerprints = await db.members.where('fingerprint_id').notEqual('').toArray();
+  const res = await api.get('/members');
+  const membersWithFingerprints = (res.data.data || []).filter(m => m.fingerprint_id && m.fingerprint_id.length > 0);
   
   if (membersWithFingerprints.length === 0) {
     throw new Error('No fingerprints registered in system yet. Please enroll a member first.');

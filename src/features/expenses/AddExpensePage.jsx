@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
-import { db, queueSyncTask } from '../../lib/db';
 import { todayStr, generateId } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
@@ -34,18 +33,15 @@ export default function AddExpensePage() {
         id: generateId(),
         amount: Number(form.amount), 
         recurrence_day: form.is_recurring ? Number(form.recurrence_day) : null,
-        created_at: new Date().toISOString(),
-        last_sync: null
       };
 
-      await db.expenses.add(expenseData);
-      await queueSyncTask('expense', 'CREATE', expenseData);
+      await api.post('/expenses', expenseData);
 
-      toast.success('Expense added! It will sync once you are online.');
+      toast.success('Expense added!');
       clearDraft();
       navigate('/expenses');
     } catch (err) {
-      toast.error('Failed to add expense locally');
+      toast.error(err.response?.data?.message || 'Failed to add expense');
     } finally {
       setLoading(false);
     }

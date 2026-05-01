@@ -5,8 +5,6 @@ import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getInitials, daysFromNow, formatDate, formatPKR, buildWhatsAppMessage, getWhatsAppLink, calculateMemberStatus } from '../../lib/utils';
 import { WHATSAPP_TEMPLATES } from '../../lib/constants';
-import { useSync } from '../../hooks/useSync';
-import { db } from '../../lib/db';
 import '../../styles/payments.css';
 
 export default function PendingFeesPage() {
@@ -18,41 +16,37 @@ export default function PendingFeesPage() {
   
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { online, isSyncing } = useSync();
 
   useEffect(() => {
+    let isMounted = true;
     const fetchPending = async () => {
       setLoading(true);
-
       try {
-        const localMembers = await db.members.toArray();
-        const allPayments = await db.payments.toArray();
+        const res = await api.get('/payments/pending');
+        if (!isMounted) return;
         
-        // Build map of latest payment per member
-        const lastPayMap = {};
-        allPayments.forEach(p => {
-          if (!lastPayMap[p.member_id] || p.payment_date > lastPayMap[p.member_id].payment_date) {
-            lastPayMap[p.member_id] = p;
+        const rawMembers = res.data.data || [];
+        const pending = rawMembers.map(m => {
+          let lastPayment = null;
+          if (m.payments && m.payments.length > 0) {
+            const sorted = [...m.payments].sort((a,b) => new Date(b.payment_date) - new Date(a.payment_date));
+            lastPayment = sorted[0];
           }
-        });
-
-        const activeLocalMembers = localMembers.filter(m => m.status !== 'deleted');
-
-        const pending = activeLocalMembers.map(m => {
           const status = calculateMemberStatus(m);
-          return { ...m, status, lastPayment: lastPayMap[m.id] || null };
-        }).filter(m => m.status === 'expired' || m.status === 'due_soon');
+          return { ...m, status, lastPayment };
+        });
         
         setMembers(pending);
       } catch (err) {
-        console.error('Local fetch failed', err);
+        console.error('Pending fetch failed', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
-    if (!isSyncing) fetchPending();
-  }, [isSyncing]);
+    fetchPending();
+    return () => { isMounted = false; };
+  }, []);
 
   let targetMembers = members;
   if (filter === 'expired') targetMembers = targetMembers.filter(m => m.status === 'expired');

@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Loader2, Clock } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../lib/db';
-import { useSync } from '../../hooks/useSync';
 import { formatPKR, formatDate, formatDateTime, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { ModernLoader } from '../../components/common/ModernLoader';
+import api from '../../lib/api';
 import '../../styles/payments.css';
 import '../../styles/loading.css';
 
@@ -17,86 +15,27 @@ export default function PaymentsListPage() {
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState('newest');
 
-  const { isSyncing } = useSync();
+  const [paymentsData, setPaymentsData] = useState(null);
 
-  // ── LIVE QUERY: Reactive to Dexie + Date Filters ──
-  const paymentsData = useLiveQuery(async () => {
-    try {
-      const allPayments = await db.payments.toArray();
-      const allMembers = await db.members.toArray();
-      const allExpenses = await db.expenses.toArray();
-      const allStaffPayments = await db.staff_payments.toArray();
-      const allStaff = await db.staff.toArray();
-      
-      // IF DB IS EMPTY AND WE ARE ONLINE: Return null so ModernLoader shows
-      if (allMembers.length === 0 && allPayments.length === 0 && isSyncing) {
-        return null;
+  useEffect(() => {
+    let isMounted = true;
+    const fetchTransactions = async () => {
+      try {
+        const res = await api.get('/payments/all-transactions', { params: { month, year } });
+        if (isMounted) {
+          setPaymentsData(res.data.data);
+        }
+      } catch (err) {
+        console.error(err);
+        if (isMounted) setPaymentsData([]);
       }
+    };
+    setPaymentsData(null);
+    fetchTransactions();
+    return () => { isMounted = false; };
+  }, [month, year]);
 
-      const memberMap = {};
-      allMembers.forEach(m => memberMap[m.id] = m.name);
-      
-      const staffMap = {};
-      allStaff.forEach(s => staffMap[s.id] = s.name);
-
-      // Filter by period
-      const filteredPayments = allPayments.filter(p => {
-        const d = new Date(p.payment_date);
-        return (d.getMonth() + 1) === month && d.getFullYear() === year;
-      });
-
-      const filteredExpenses = allExpenses.filter(e => {
-        const d = new Date(e.expense_date);
-        return (d.getMonth() + 1) === month && d.getFullYear() === year;
-      });
-
-      const filteredStaffPayments = allStaffPayments.filter(p => p.month === month && p.year === year);
-
-      // Map to transitions logic (keep it the same)
-      const transactions = [
-        ...filteredPayments.map(p => ({
-          id: `pay_${p.id}`,
-          type: 'member_payment',
-          amount: p.amount,
-          date: p.payment_date,
-          created_at: p.created_at || p.payment_date,
-          title: memberMap[p.member_id] || 'Unknown Member',
-          subtitle: p.plan_duration_months === 'custom' ? 'Custom' : `${p.plan_duration_months}m Plan`,
-          method: p.payment_method,
-          reason: p.notes?.includes('registration_fee:') ? 'Fee + Reg' : 'Membership'
-        })),
-        ...filteredExpenses.map(e => ({
-          id: `exp_${e.id}`,
-          type: 'expense',
-          amount: e.amount,
-          date: e.expense_date,
-          created_at: e.created_at || e.expense_date,
-          title: (e.category || 'EXPENSE').replace(/_/g, ' ').toUpperCase(),
-          subtitle: 'General Expense',
-          method: 'cash',
-          reason: e.description || 'N/A'
-        })),
-        ...filteredStaffPayments.map(p => ({
-          id: `staff_${p.id}`,
-          type: 'staff_payment',
-          amount: p.amount_paid,
-          date: p.paid_date || `${p.year}-${String(p.month).padStart(2, '0')}-01`,
-          created_at: p.created_at || p.paid_date,
-          title: (staffMap[p.staff_id] || 'Staff').toUpperCase(),
-          subtitle: 'Salary',
-          method: p.payment_method || 'CASH',
-          reason: `Salary for ${getMonthName(p.month)}`
-        }))
-      ];
-
-      return transactions;
-    } catch (e) {
-      console.error(e);
-      return [];
-    }
-  }, [month, year, isSyncing]);
-
-  const loading = !paymentsData && isSyncing;
+  const loading = !paymentsData;
   const payments = paymentsData || [];
 
   // Prepare filtered + visible list (used for empty state and rendering)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Edit, CreditCard, Trash2, CalendarCheck, Loader2, Printer } from 'lucide-react';
-import { db, queueSyncTask } from '../../lib/db';
+import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getInitials, formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName, generateId } from '../../lib/utils';
 import { STAFF_ROLES, PAYMENT_METHODS } from '../../lib/constants';
@@ -37,13 +37,13 @@ export default function StaffDetailPage() {
     const fetchStaff = async () => {
       setLoading(true);
       try {
-        const s = await db.staff.get(id);
+        const res = await api.get(`/staff/${id}`);
+        const s = res.data.data;
         if (s) {
-          s.staff_payments = await db.staff_payments.where('staff_id').equals(id).toArray() || [];
           setStaff(s);
           setPayForm(p => ({ ...p, amount_paid: String(s.monthly_salary) }));
         } else {
-          toast.error('Staff member not found locally');
+          toast.error('Staff member not found');
         }
       } catch (err) {
         console.error('Failed to fetch staff member', err);
@@ -91,17 +91,13 @@ export default function StaffDetailPage() {
         paid_date: payForm.paid_date, 
         payment_method: payForm.payment_method, 
         notes: payForm.notes,
-        created_at: new Date().toISOString(),
-        last_sync: null
       };
-      await db.staff_payments.add(payload);
-      await queueSyncTask('staff_payment', 'CREATE', payload);
+      await api.post(`/staff/${id}/payments`, payload);
 
-      toast.success(`Salary marked as paid for ${staff.name} locally!`);
+      toast.success(`Salary marked as paid for ${staff.name}!`);
       setShowPayForm(false);
 
       // Auto-print salary receipt
-      const gymSettings = JSON.parse(localStorage.getItem('core_gym_settings') || '{}');
       printSalaryReceipt({
         id: pid,
         staffName: staff.name,
@@ -110,15 +106,12 @@ export default function StaffDetailPage() {
         month, year,
         paidDate: payForm.paid_date,
         paymentMethod: payForm.payment_method,
-        gymName: gymSettings.gym_name || 'CORE GYM',
+        gymName: user?.gym_name || 'CORE GYM',
       });
       
-      // Refresh local data
-      const s = await db.staff.get(id);
-      if (s) {
-        s.staff_payments = await db.staff_payments.where('staff_id').equals(id).toArray() || [];
-        setStaff(s);
-      }
+      // Refresh from API
+      const res = await api.get(`/staff/${id}`);
+      if (res.data.data) setStaff(res.data.data);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to log salary payment');
     } finally {
@@ -130,17 +123,10 @@ export default function StaffDetailPage() {
     setShowDeleteOptions(false);
     try {
       if (permanent) {
-        // Hard delete staff locally
-        await db.staff.delete(id);
-        // Cascade delete related records locally
-        await db.staff_payments.where('staff_id').equals(id).delete();
-        
-        await queueSyncTask('staff', 'DELETE', { id, permanent: true });
+        await api.delete(`/staff/${id}?permanent=true`);
         toast.success(`${staff.name} and all records permanently deleted`);
       } else {
-        // Soft delete staff locally
-        await db.staff.update(id, { status: 'deleted' });
-        await queueSyncTask('staff', 'DELETE', { id, permanent: false });
+        await api.delete(`/staff/${id}`);
         toast.success(`${staff.name} removed (financial history preserved)`);
       }
       navigate('/staff');

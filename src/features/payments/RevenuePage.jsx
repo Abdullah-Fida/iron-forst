@@ -6,8 +6,6 @@ import { formatPKR, getCurrentMonth, getCurrentYear, getMonthName } from '../../
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
 import { StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
-import { useSync } from '../../hooks/useSync';
-import { db } from '../../lib/db';
 import '../../styles/payments.css';
 import '../../styles/loading.css';
 
@@ -18,17 +16,14 @@ export default function RevenuePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const { isSyncing, online } = useSync();
-
   const fetchAllPayments = async () => {
     setLoading(true);
     setError(null);
     try {
-      // Always read from local Dexie (offline-first approach)
-      const localPayments = await db.payments.toArray();
-      setAllPayments(localPayments);
+      const res = await api.get('/payments');
+      setAllPayments(res.data.data || []);
     } catch (err) {
-      console.error('Failed to fetch payments from local DB', err);
+      console.error('Failed to fetch payments from API', err);
       setError('Failed to load payment data');
     } finally {
       setLoading(false);
@@ -36,10 +31,8 @@ export default function RevenuePage() {
   };
 
   useEffect(() => {
-    if (!isSyncing) {
-      fetchAllPayments();
-    }
-  }, [isSyncing]);
+    fetchAllPayments();
+  }, []);
 
   const now = new Date();
   let payments = [];

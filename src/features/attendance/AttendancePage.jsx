@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, queueSyncTask } from '../../lib/db';
+import api from '../../lib/api';
 import { identifyFingerprint } from '../../lib/biometrics';
 import { daysFromNow, formatPKR, getInitials, formatDate } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
@@ -27,22 +27,12 @@ export default function AttendancePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // Load today's history
+  // Load today's history from API
   const fetchHistory = async () => {
-    if (!db.attendance) return;
     setLoadingHistory(true);
     try {
-      const today = new Date();
-      today.setHours(0,0,0,0);
-      const todayISO = today.toISOString();
-      const logs = await db.attendance.where('timestamp').above(todayISO).reverse().toArray();
-      const hydrated = await Promise.all(logs.map(async log => {
-        try {
-          const member = await db.members.get(log.member_id);
-          return { ...log, member: member || { name: 'Unknown Member' } };
-        } catch (e) { return { ...log, member: { name: 'Unknown Member' } }; }
-      }));
-      setHistory(hydrated);
+      const res = await api.get('/attendance', { params: { date: new Date().toISOString().split('T')[0] } });
+      setHistory(res.data.data || []);
     } catch (err) { console.error(err); } finally { setLoadingHistory(false); }
   };
 
@@ -53,15 +43,18 @@ export default function AttendancePage() {
         setSearchResults([]);
         return;
       }
-      const results = await db.members
-        .filter(m => 
+      try {
+        const res = await api.get('/members');
+        const allMembers = res.data.data || [];
+        const results = allMembers.filter(m => 
           m.status !== 'deleted' &&
           (m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
           m.phone.includes(searchTerm))
-        )
-        .limit(10)
-        .toArray();
-      setSearchResults(results);
+        ).slice(0, 10);
+        setSearchResults(results);
+      } catch (err) {
+        console.error('Member search failed', err);
+      }
     };
     performSearch();
   }, [searchTerm]);
@@ -83,8 +76,7 @@ export default function AttendancePage() {
         toast.error('Membership Expired!');
       } else {
         const record = { id: crypto.randomUUID(), member_id: member.id, timestamp: new Date().toISOString(), status: 'present' };
-        await db.attendance.add(record);
-        await queueSyncTask('attendance', 'POST', record);
+        await api.post('/attendance', record);
         setScanResult({ member, allowed: true, message: `Welcome, ${member.name}! Access Granted.` });
         toast.success(`Welcome back, ${member.name.split(' ')[0]}!`);
       }
@@ -104,10 +96,9 @@ export default function AttendancePage() {
   const handleManualMark = async (memberId) => {
     try {
       const record = { id: crypto.randomUUID(), member_id: memberId, timestamp: new Date().toISOString(), status: 'present' };
-      await db.attendance.add(record);
-      await queueSyncTask('attendance', 'POST', record);
-      toast.success('Attendance marked manually');
-      setSearchTerm(''); // Clear search to go back to logs
+      await api.post('/attendance', record);
+      toast.success('Attendance marked');
+      setSearchTerm('');
       fetchHistory();
     } catch (err) { toast.error('Failed to mark attendance'); }
   };

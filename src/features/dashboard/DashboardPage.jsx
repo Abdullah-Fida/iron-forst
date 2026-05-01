@@ -11,13 +11,11 @@ import {
   Filler
 } from 'chart.js';
 import { Bar, Line, Doughnut } from 'react-chartjs-2';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../lib/db';
-import { useAuth } from '../../contexts/AuthContext';
-import { formatPKR, formatDateShort, daysFromNow, buildWhatsAppMessage, getWhatsAppLink, getMonthName, calculateMemberStatus } from '../../lib/utils';
 import { StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
-import { useSync } from '../../hooks/useSync';
+import { useAuth } from '../../contexts/AuthContext';
+import { formatPKR, formatDateShort, daysFromNow, buildWhatsAppMessage, getWhatsAppLink, getMonthName, calculateMemberStatus } from '../../lib/utils';
+import api from '../../lib/api';
 import '../../styles/dashboard.css';
 import '../../styles/loading.css';
 
@@ -33,7 +31,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('revenue');
-  const { isSyncing } = useSync();
+
   const [hiddenMetrics, setHiddenMetrics] = useState(new Set());
 
   const toggleMetric = (e, key) => {
@@ -48,19 +46,33 @@ export default function DashboardPage() {
 
   const isHidden = (key) => hiddenMetrics.has(key);
 
-  // ── LIVE QUERY: Reactive Dashboard Data ──
-  const dashboardData = useLiveQuery(async () => {
-    try {
-      const allMembers = await db.members.toArray();
-      const allPayments = await db.payments.toArray();
-      const allExpenses = await db.expenses.toArray();
-      const allStaffPayments = await db.staff_payments.toArray();
+  const [dashboardData, setDashboardData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-      // IF DB IS EMPTY AND WE ARE ONLINE: Return null so ModernLoader shows
-      // This prevents the "0" flicker during switchSession/login
-      if (allMembers.length === 0 && allPayments.length === 0 && isSyncing) {
-        return null;
-      }
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDashboard = async () => {
+      try {
+        const [membersRes, paymentsRes, expensesRes, staffRes] = await Promise.all([
+          api.get('/members'),
+          api.get('/payments'),
+          api.get('/expenses'),
+          api.get('/staff')
+        ]);
+        
+        if (!isMounted) return;
+
+        const allMembers = membersRes.data.data || [];
+        const allPayments = paymentsRes.data.data || [];
+        const allExpenses = expensesRes.data.data || [];
+        const staffData = staffRes.data.data || [];
+        
+        const allStaffPayments = [];
+        staffData.forEach(s => {
+          if (s.staff_payments) {
+            s.staff_payments.forEach(p => allStaffPayments.push(p));
+          }
+        });
 
       const activeMembersList = allMembers.filter(m => m.status !== 'deleted');
 
@@ -95,6 +107,16 @@ export default function DashboardPage() {
       const salaryTotal = thisMonthStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
       const totalExp = monthGeneralExpenses + salaryTotal;
 
+      // Daily Earning Calculation (Local Timezone)
+      const todayStr = new Date().toLocaleDateString('en-CA'); // 'YYYY-MM-DD' in local time
+      const todaysPayments = allPayments.filter(p => {
+        if (!p.payment_date) return false;
+        // Parse date considering local timezone
+        const d = new Date(p.payment_date);
+        return d.toLocaleDateString('en-CA') === todayStr;
+      });
+      const dailyEarning = todaysPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
       // 6 Month Trend
       const trend = [];
       for (let i = 5; i >= 0; i--) {
@@ -121,17 +143,22 @@ export default function DashboardPage() {
         trend.push({ month: m + 1, revenue: mRev, expenses: mExp, profit: mRev - mExp });
       }
 
-      return {
-        stats: { totalMembers, activeMembers, expiredCount, dueSoonCount, revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses, profit: revenue - totalExp },
-        revenueTrend: trend
-      };
-    } catch (err) {
-      console.error('Dash error:', err);
-      return { error: true };
-    }
-  }, [isSyncing]);
-
-  const loading = !dashboardData && isSyncing;
+        setDashboardData({
+          stats: { totalMembers, activeMembers, expiredCount, dueSoonCount, revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses, profit: revenue - totalExp, dailyEarning },
+          revenueTrend: trend
+        });
+        setLoading(false);
+      } catch (err) {
+        console.error('Dash error:', err);
+        if (isMounted) {
+          setDashboardData({ error: true, msg: err.message || JSON.stringify(err) });
+          setLoading(false);
+        }
+      }
+    };
+    fetchDashboard();
+    return () => { isMounted = false; };
+  }, []);
   const stats = dashboardData?.stats;
   const revenueTrend = dashboardData?.revenueTrend || [];
 
@@ -143,7 +170,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (dashboardData.error) return <div className="page-container"><StateView type="error" title="Dashboard Error" description="Check connection." /></div>;
+  if (dashboardData.error) return <div className="page-container"><StateView type="error" title="Dashboard Error" description={dashboardData.msg ? `Error: ${dashboardData.msg}. Please send me a screenshot.` : "Check connection."} /></div>;
 
   const revenueData = revenueTrend.map(d => d.revenue);
   const expenseData = revenueTrend.map(d => d.expenses);
@@ -213,6 +240,7 @@ export default function DashboardPage() {
   };
 
   const statCards = [
+    { key: 'daily', label: 'Today\'s Earnings', value: formatPKR(stats.dailyEarning || 0), icon: Zap, color: '#3b82f6', pct: 'Resets daily', onClick: () => navigate('/payments') },
     { key: 'active', label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
     { key: 'expired', label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
     { key: 'due', label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },

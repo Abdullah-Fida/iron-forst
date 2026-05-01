@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, queueSyncTask } from '../../lib/db';
+import api from '../../lib/api';
 import { identifyFingerprint } from '../../lib/biometrics';
 import { daysFromNow, formatPKR, getInitials } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
@@ -30,7 +30,7 @@ export default function AttendanceScanner() {
         });
         toast.error('Membership Expired!');
       } else {
-        // 3. Mark Attendance in Local DB
+        // 3. Mark Attendance via API
         const attendanceRecord = {
           id: crypto.randomUUID(),
           member_id: member.id,
@@ -38,8 +38,7 @@ export default function AttendanceScanner() {
           status: 'present'
         };
         
-        await db.attendance.add(attendanceRecord);
-        await queueSyncTask('attendance', 'POST', attendanceRecord);
+        await api.post('/attendance', attendanceRecord);
 
         setResult({
           member,

@@ -2,18 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
-import { db, queueSyncTask } from '../../lib/db';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
-import { useSync } from '../../hooks/useSync';
 import '../../styles/members.css';
 
 export default function EditExpensePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { online } = useSync();
   
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,46 +28,20 @@ export default function EditExpensePage() {
     const fetchExpense = async () => {
       setLoading(true);
       try {
-        if (!online) {
-          // Load from local Dexie DB when offline
-          const localExpense = await db.expenses.get(id);
-          if (localExpense) {
-            setForm(prev => {
-              if (prev && prev.amount) return prev;
-              return localExpense;
-            });
-          } else {
-            toast.error('Expense not found locally');
-          }
-        } else {
-          const res = await api.get(`/expenses/${id}`);
-          setForm(prev => {
-            if (prev && prev.amount) return prev;
-            return res.data.data;
-          });
-        }
+        const res = await api.get(`/expenses/${id}`);
+        setForm(prev => {
+          if (prev && prev.amount) return prev;
+          return res.data.data;
+        });
       } catch (err) {
         console.error('Failed to fetch expense', err);
-        // Fallback: try local DB even if online fetch failed
-        try {
-          const localExpense = await db.expenses.get(id);
-          if (localExpense) {
-            setForm(prev => {
-              if (prev && prev.amount) return prev;
-              return localExpense;
-            });
-          } else {
-            toast.error('Expense not found');
-          }
-        } catch (localErr) {
-          toast.error('Expense not found');
-        }
+        toast.error('Expense not found');
       } finally {
         setLoading(false);
       }
     };
     fetchExpense();
-  }, [id, online]);
+  }, [id]);
 
   if (loading) return (
     <div className="page-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
@@ -87,16 +58,13 @@ export default function EditExpensePage() {
     setIsSaving(true);
     try {
       const updatedData = { ...form, amount: Number(form.amount) };
-
-      // Always save to local DB first, then queue for sync (same pattern as all other pages)
-      await db.expenses.put({ ...updatedData, last_sync: null });
-      await queueSyncTask('expense', 'UPDATE', updatedData);
+      await api.put(`/expenses/${id}`, updatedData);
 
       toast.success('Expense updated!');
       clearDraft();
       navigate('/expenses');
     } catch (err) {
-      toast.error('Failed to update expense');
+      toast.error(err.response?.data?.message || 'Failed to update expense');
     } finally {
       setIsSaving(false);
     }

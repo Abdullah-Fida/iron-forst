@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
-import { db, queueSyncTask } from '../../lib/db';
+import api from '../../lib/api';
 import { STAFF_ROLES } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
@@ -28,7 +28,8 @@ export default function EditStaffPage() {
     const fetchStaff = async () => {
       setLoading(true);
       try {
-        const s = await db.staff.get(id);
+        const res = await api.get(`/staff/${id}`);
+        const s = res.data.data;
         if (s) {
           setForm(prev => {
             if (prev && prev.name) return prev;
@@ -69,8 +70,7 @@ export default function EditStaffPage() {
     setIsSaving(true);
     try {
       const updatedForm = { ...form, monthly_salary: Number(form.monthly_salary) };
-      await db.staff.update(id, updatedForm);
-      await queueSyncTask('staff', 'UPDATE', { id, ...updatedForm });
+      await api.put(`/staff/${id}`, updatedForm);
       toast.success('Staff updated!');
       clearDraft();
       navigate(`/staff/${id}`);
@@ -104,11 +104,13 @@ export default function EditStaffPage() {
             className="btn btn-danger btn-lg" 
             onClick={async () => {
               if (window.confirm('Are you sure you want to delete this staff member?')) {
-                // DO NOT cascade delete payments
-                await db.staff.update(id, { status: 'deleted' });
-                await queueSyncTask('staff', 'DELETE', { id });
-                toast.success('Staff removed locally');
-                navigate('/staff');
+                try {
+                  await api.delete(`/staff/${id}`);
+                  toast.success('Staff removed');
+                  navigate('/staff');
+                } catch (err) {
+                  toast.error('Failed to delete staff');
+                }
               }
             }}
           >

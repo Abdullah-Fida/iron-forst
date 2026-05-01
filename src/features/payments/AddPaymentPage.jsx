@@ -7,7 +7,6 @@ import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
-import { db, queueSyncTask } from '../../lib/db';
 import { generateId } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import '../../styles/payments.css';
@@ -71,10 +70,10 @@ export default function AddPaymentPage() {
 
   useEffect(() => {
     if (preselectedMemberId) {
-      db.members.get(preselectedMemberId).then(m => {
-        if (m) setSelectedMember(m);
+      api.get(`/members/${preselectedMemberId}`).then(res => {
+        if (res.data.data) setSelectedMember(res.data.data);
       }).catch(err => {
-        console.error('Failed to fetch local preselected member', err);
+        console.error('Failed to fetch preselected member', err);
       });
     }
   }, [preselectedMemberId]);
@@ -84,18 +83,18 @@ export default function AddPaymentPage() {
       setLoadingMembers(true);
       const timer = setTimeout(async () => {
         try {
-          const s = search.toLowerCase().trim();
-          const allMembers = await db.members.toArray();
+          const res = await api.get('/members', { params: { search: search.trim() } });
+          const allMembers = res.data.data || [];
           const matches = allMembers.filter(m => {
             if (m.status === 'deleted') return false;
+            const s = search.toLowerCase().trim();
             const nameMatch = (m.name || '').toLowerCase().includes(s);
             const phoneMatch = String(m.phone || '').includes(s);
             return nameMatch || phoneMatch;
           });
-          console.log(`[Search] Query: "${s}", Total Members: ${allMembers.length}, Matched: ${matches.length}`);
           setMembers(matches.slice(0, 10));
         } catch (err) {
-          console.error('Search failed locally', err);
+          console.error('Search failed', err);
         } finally {
           setLoadingMembers(false);
         }
@@ -142,20 +141,14 @@ export default function AddPaymentPage() {
           last_sync: null
         };
         
-        await db.payments.add(paymentData);
-        await queueSyncTask('payment', 'CREATE', paymentData);
+        const res = await api.post('/payments', paymentData);
+        const serverPayment = res.data.data;
 
-        await db.members.update(form.member_id, {
-          status: 'trial',
-          latest_expiry: expiryDate
-        });
-
-        toast.success(`Free trial started locally`);
-        window.dispatchEvent(new CustomEvent('local-db-changed'));
+        toast.success(`Free trial started!`);
         clearDraft();
         navigate(`/members/${form.member_id}`);
       } catch (err) {
-        toast.error('Failed to start trial locally');
+        toast.error(err.response?.data?.message || 'Failed to start trial');
       } finally {
         setIsSaving(false);
       }
@@ -184,25 +177,19 @@ export default function AddPaymentPage() {
         last_sync: null
       };
 
-      await db.payments.add(paymentData);
-      await queueSyncTask('payment', 'CREATE', paymentData);
+      const res = await api.post('/payments', paymentData);
+      const serverPayment = res.data.data;
 
       const estimatedExpiry = expiryDate;
 
-      await db.members.update(form.member_id, {
-        status: 'active',
-        latest_expiry: estimatedExpiry
-      });
-
-      setReceipts([ { ...paymentData, member_name: selectedMember?.name || form.member_id, member_phone: selectedMember?.phone, expiry_date: estimatedExpiry } ]);
+      setReceipts([ { ...serverPayment, member_name: selectedMember?.name || form.member_id, member_phone: selectedMember?.phone, expiry_date: estimatedExpiry } ]);
       
       setShowReceipts(true);
-      window.dispatchEvent(new CustomEvent('local-db-changed'));
-      toast.success(`Payment saved locally!`);
+      toast.success(`Payment saved!`);
       clearDraft();
     } catch (err) {
       console.error(err);
-      toast.error('Failed to log payment locally');
+      toast.error(err.response?.data?.message || 'Failed to log payment');
     } finally {
       setIsSaving(false);
     }

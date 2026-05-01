@@ -4,7 +4,6 @@ import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
-import { db, queueSyncTask } from '../../lib/db';
 import '../../styles/members.css';
 
 export default function EditMemberPage() {
@@ -28,10 +27,11 @@ export default function EditMemberPage() {
     const fetchMember = async () => {
       setLoading(true);
       try {
-        const m = await db.members.get(id);
+        const res = await api.get(`/members/${id}`);
+        const m = res.data.data;
         if (m) {
           setForm(prev => {
-             if (prev) return prev; // Keep current form (potentially from draft)
+             if (prev) return prev;
              return { 
                name: m.name, 
                phone: m.phone, 
@@ -41,7 +41,7 @@ export default function EditMemberPage() {
              };
           });
         } else {
-          toast.error('Member not found locally');
+          toast.error('Member not found');
         }
       } catch (err) {
         console.error('Failed to fetch member', err);
@@ -70,13 +70,12 @@ export default function EditMemberPage() {
     setIsSaving(true);
     try {
       const updatedData = { ...form };
-      await db.members.update(id, updatedData);
-      await queueSyncTask('member', 'UPDATE', { id, ...updatedData });
-      toast.success('Member updated locally!');
+      await api.put(`/members/${id}`, updatedData);
+      toast.success('Member updated!');
       clearDraft();
       navigate(`/members/${id}`);
     } catch (err) {
-      toast.error('Failed to update member');
+      toast.error(err.response?.data?.message || 'Failed to update member');
     } finally {
       setIsSaving(false);
     }

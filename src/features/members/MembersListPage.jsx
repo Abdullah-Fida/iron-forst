@@ -1,14 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, UserPlus, Trash2 } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, queueSyncTask } from '../../lib/db';
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { getInitials, daysFromNow, formatDateShort, calculateMemberStatus } from '../../lib/utils';
 import { MemberSkeleton, StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
-import { useSync } from '../../hooks/useSync';
+import api from '../../lib/api';
 import '../../styles/members.css';
 import '../../styles/loading.css';
 
@@ -22,77 +20,85 @@ export default function MembersListPage() {
   const [sort, setSort] = useState('name');
   const [errorDetail, setErrorDetail] = useState(null);
   
-  const { isSyncing } = useSync();
 
-  // ── LIVE QUERY: Reactive to Dexie + Filters ──
-  const membersData = useLiveQuery(async () => {
-    try {
-      let query = db.members;
+  const [membersData, setMembersData] = useState(null);
 
-      if (search) {
-        const s = search.toLowerCase();
-        query = db.members.filter(m => {
-          const nameMatch = (m.name || '').toLowerCase().includes(s);
-          const phoneMatch = String(m.phone || '').includes(s);
-          return nameMatch || phoneMatch;
+  useEffect(() => {
+    const fetchMembers = async () => {
+      try {
+        const res = await api.get('/members');
+        let results = res.data.data || [];
+        results = results.filter(m => m.status !== 'deleted');
+        
+        results = results.map(m => {
+           let lastPayDate = null;
+           if (m.payments && m.payments.length > 0) {
+             const sorted = [...m.payments].sort((a,b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
+             lastPayDate = sorted[0].payment_date;
+           }
+           const status = calculateMemberStatus(m);
+           return { ...m, status, lastPayDate };
         });
+        setMembersData(results);
+      } catch (err) {
+        console.error(err);
+        setMembersData([]);
       }
+    };
+    fetchMembers();
+  }, []);
 
-      let results = await query.toArray();
-      results = results.filter(m => m.status !== 'deleted');
-      
-      // IF DB IS EMPTY AND WE ARE ONLINE: Return null so loader shows
-      if (results.length === 0 && isSyncing) return null;
-
-      // Join last payment date from payments table
-      const allPayments = await db.payments.toArray();
-      const paymentsByMember = {};
-      allPayments.forEach(p => {
-        if (!paymentsByMember[p.member_id] || p.payment_date > paymentsByMember[p.member_id].payment_date) {
-          paymentsByMember[p.member_id] = p;
-        }
+  const processedMembers = (() => {
+    if (!membersData) return null;
+    let results = [...membersData];
+    
+    if (search) {
+      const s = search.toLowerCase();
+      results = results.filter(m => {
+        const nameMatch = (m.name || '').toLowerCase().includes(s);
+        const phoneMatch = String(m.phone || '').includes(s);
+        return nameMatch || phoneMatch;
       });
-
-      // Status calculation
-      results = results.map(m => {
-        const status = calculateMemberStatus(m);
-        const lastPayment = paymentsByMember[m.id] || null;
-        return { ...m, status, lastPayDate: lastPayment?.payment_date || null };
-      });
-
-      if (statusFilter !== 'all') {
-        results = results.filter(m => m.status === statusFilter);
-      }
-
-      // Sort
-      if (sort === 'name') {
-        results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      } else if (sort === 'join_date') {
-        results.sort((a, b) => {
-          const da = a.join_date ? new Date(a.join_date).getTime() : 0;
-          const db2 = b.join_date ? new Date(b.join_date).getTime() : 0;
-          return db2 - da;
-        });
-      } else if (sort === 'overdue') {
-        results.sort((a, b) => {
-          const da = a.latest_expiry ? daysFromNow(a.latest_expiry) : 9999;
-          const db2 = b.latest_expiry ? daysFromNow(b.latest_expiry) : 9999;
-          return da - db2; // most overdue (most negative) first
-        });
-      }
-
-      return results;
-    } catch (e) {
-      console.error(e);
-      return [];
     }
-  }, [search, statusFilter, sort, isSyncing]);
+    
+    if (statusFilter !== 'all') {
+      results = results.filter(m => m.status === statusFilter);
+    }
+    
+    if (sort === 'name') {
+      results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } else if (sort === 'join_date') {
+      results.sort((a, b) => {
+        const da = a.join_date ? new Date(a.join_date).getTime() : 0;
+        const db2 = b.join_date ? new Date(b.join_date).getTime() : 0;
+        return db2 - da;
+      });
+    } else if (sort === 'overdue') {
+      results.sort((a, b) => {
+        let aExp = a.latest_expiry;
+        if (!aExp && a.payments && a.payments.length > 0) {
+          const sortedA = [...a.payments].sort((x, y) => new Date(y.expiry_date || y.payment_date || 0) - new Date(x.expiry_date || x.payment_date || 0));
+          aExp = sortedA[0].expiry_date || sortedA[0].payment_date;
+        }
+        let bExp = b.latest_expiry;
+        if (!bExp && b.payments && b.payments.length > 0) {
+          const sortedB = [...b.payments].sort((x, y) => new Date(y.expiry_date || y.payment_date || 0) - new Date(x.expiry_date || x.payment_date || 0));
+          bExp = sortedB[0].expiry_date || sortedB[0].payment_date;
+        }
+        const da = aExp ? daysFromNow(aExp) : 9999;
+        const db2 = bExp ? daysFromNow(bExp) : 9999;
+        return da - db2;
+      });
+    }
+    return results;
+  })();
 
-  const loading = !membersData && isSyncing;
-  const members = membersData || [];
+  const loading = !membersData;
+  const members = processedMembers || [];
   const totalCount = members.length;
 
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, memberId: null, name: '' });
+  const [deletingIds, setDeletingIds] = useState([]);
 
   const handleDeleteMember = (e, id, name) => {
     e.stopPropagation();
@@ -102,26 +108,24 @@ export default function MembersListPage() {
   const processDeletion = async (permanent = false) => {
     const { memberId, name } = deleteModal;
     setDeleteModal({ isOpen: false, memberId: null, name: '' });
+    
+    // Start animation
+    setDeletingIds(prev => [...prev, memberId]);
+    await new Promise(r => setTimeout(r, 400));
 
     try {
       if (permanent) {
-        // Hard delete member locally
-        await db.members.delete(memberId);
-        // Cascade delete related records locally to keep UI consistent with calculations
-        await db.payments.where('member_id').equals(memberId).delete();
-        await db.attendance.where('member_id').equals(memberId).delete();
-        
-        await queueSyncTask('member', 'DELETE', { id: memberId, permanent: true });
+        await api.delete(`/members/${memberId}?permanent=true`);
         toast.success(`${name} and all associated records permanently deleted`);
       } else {
-        // Soft delete member locally
-        await db.members.update(memberId, { status: 'deleted' });
-        await queueSyncTask('member', 'DELETE', { id: memberId, permanent: false });
+        await api.delete(`/members/${memberId}`);
         toast.success(`${name} removed (financial records preserved)`);
       }
+      setMembersData(prev => prev.filter(m => m.id !== memberId));
     } catch (err) {
       console.error('Failed to delete member locally', err);
       toast.error('Could not delete.');
+      setDeletingIds(prev => prev.filter(id => id !== memberId)); // revert animation if failed
     }
   };
 
@@ -184,12 +188,22 @@ export default function MembersListPage() {
           />
         ) : (
           members.map(member => {
-            const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
+            let actualExpiry = member.latest_expiry;
+            if (!actualExpiry && member.payments && member.payments.length > 0) {
+              const sorted = [...member.payments].sort((a, b) => new Date(b.expiry_date || b.payment_date || 0) - new Date(a.expiry_date || a.payment_date || 0));
+              actualExpiry = sorted[0].expiry_date || sorted[0].payment_date;
+            }
+            const days = actualExpiry ? daysFromNow(actualExpiry) : null;
             const isExpired = member.status === 'expired' || (days !== null && days < 0);
             const isDueSoon = member.status === 'due_soon' || (days !== null && days >= 0 && days <= 3);
 
             return (
-              <div key={member.id} className="member-card" onClick={() => navigate(`/members/${member.id}`)}>
+              <div 
+                key={member.id} 
+                className="member-card" 
+                onClick={() => navigate(`/members/${member.id}`)}
+                style={deletingIds.includes(member.id) ? { transform: 'translateX(100px)', opacity: 0, transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)', pointerEvents: 'none' } : { transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}
+              >
                 <div className="avatar" style={{
                   background: isExpired ? 'var(--status-danger-bg)' : isDueSoon ? 'var(--status-warning-bg)' : (member.status === 'inactive' || days === null) ? 'var(--bg-secondary)' : 'var(--accent-gradient)',
                   color: isExpired ? 'var(--status-danger)' : isDueSoon ? 'var(--status-warning)' : (member.status === 'inactive' || days === null) ? 'var(--text-muted)' : 'white'

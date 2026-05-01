@@ -13,7 +13,6 @@ import {
   ReceiptText,
   Fingerprint
 } from 'lucide-react';
-import { db, queueSyncTask } from '../../lib/db';
 import api from '../../lib/api';
 import { registerFingerprint } from '../../lib/biometrics';
 import { useAuth } from '../../contexts/AuthContext';
@@ -50,10 +49,10 @@ export default function MemberDetailPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const m = await db.members.get(id);
-        const p = await db.payments.where('member_id').equals(id).reverse().toArray();
+        const res = await api.get(`/members/${id}`);
+        const m = res.data.data;
         if (m) {
-          setMember({ ...m, payments: p });
+          setMember(m);
         } else {
           toast.error('Member not found');
           navigate('/members');
@@ -85,7 +84,19 @@ export default function MemberDetailPage() {
   if (!member) return null;
 
   const payments = member.payments || [];
-  const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
+  
+  // Robust fallback: if latest_expiry is null, calculate from the payments array
+  let actualExpiry = member.latest_expiry;
+  if (!actualExpiry && payments.length > 0) {
+    const sorted = [...payments].sort((a, b) => {
+      const dateA = new Date(a.expiry_date || a.payment_date || 0);
+      const dateB = new Date(b.expiry_date || b.payment_date || 0);
+      return dateB - dateA;
+    });
+    actualExpiry = sorted[0].expiry_date || sorted[0].payment_date;
+  }
+
+  const days = actualExpiry ? daysFromNow(actualExpiry) : null;
   const isExpired = member.status === 'expired' || (days !== null && days < 0);
   const isDueSoon = member.status === 'due_soon' || (days !== null && days >= 0 && days <= 3);
 
@@ -110,12 +121,8 @@ export default function MemberDetailPage() {
       toast.info('Please touch your fingerprint sensor...');
       const credentialId = await registerFingerprint(member);
       
-      // Update local DB
-      await db.members.update(member.id, { fingerprint_id: credentialId });
-      
-      // Queue for sync
-      await queueSyncTask('member', 'UPDATE', { id: member.id, fingerprint_id: credentialId });
-      
+      // Direct API Call
+      await api.put(`/members/${member.id}`, { fingerprint_id: credentialId });
       setMember({ ...member, fingerprint_id: credentialId });
       toast.success('Fingerprint registered successfully!');
     } catch (err) {
@@ -147,9 +154,7 @@ export default function MemberDetailPage() {
     });
     if (!isConfirmed) return;
     try {
-      // DO NOT cascade delete payments
-      await db.members.update(id, { status: 'deleted' });
-      await queueSyncTask('member', 'DELETE', { id });
+      await api.delete(`/members/${id}`);
       toast.success('Member removed');
       navigate('/members');
     } catch (e) { 

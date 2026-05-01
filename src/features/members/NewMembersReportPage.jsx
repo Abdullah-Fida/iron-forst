@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, TrendingUp, TrendingDown, UserPlus, Loader2 } from 'lucide-react';
-import { db } from '../../lib/db';
+import api from '../../lib/api';
 import { getMonthName, getInitials, daysFromNow, formatDateShort } from '../../lib/utils';
 import '../../styles/payments.css';
 import '../../styles/members.css';
@@ -17,10 +17,10 @@ export default function NewMembersReportPage() {
     const fetchAllMembers = async () => {
       setLoading(true);
       try {
-        const localMembers = await db.members.toArray();
-        setAllMembers(localMembers);
+        const res = await api.get('/members');
+        setAllMembers((res.data.data || []).filter(m => m.status !== 'deleted'));
       } catch (err) {
-        console.error('Failed to fetch local members', err);
+        console.error('Failed to fetch members', err);
       } finally {
         setLoading(false);
       }

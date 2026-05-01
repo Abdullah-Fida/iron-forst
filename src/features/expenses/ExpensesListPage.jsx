@@ -1,13 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
 import { MemberSkeleton, StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
-import { useSync } from '../../hooks/useSync';
-import { db, queueSyncTask } from '../../lib/db';
+import api from '../../lib/api';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import '../../styles/members.css';
 import '../../styles/loading.css';
@@ -18,30 +16,31 @@ export default function ExpensesListPage() {
   const [month, setMonth] = useState(getCurrentMonth());
   const [category, setCategory] = useState('');
   const year = getCurrentYear();
-  const { isSyncing } = useSync();
   const confirm = useConfirm();
+  const [expenseData, setExpenseData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [deletingIds, setDeletingIds] = useState([]);
 
-  // ── LIVE QUERY: Reactive to Dexie changes (auto-refreshes on add/update/delete) ──
-  const expenseData = useLiveQuery(async () => {
-    try {
-      const localExps = await db.expenses.toArray();
-
-      // If DB is empty and syncing, show loader
-      if (localExps.length === 0 && isSyncing) return null;
-
-      const filtered = localExps.filter(e => {
-        const d = new Date(e.expense_date);
-        if (d.getMonth() + 1 !== month || d.getFullYear() !== year) return false;
-        if (category && e.category !== category) return false;
-        return true;
-      });
-
-      return filtered;
-    } catch (e) {
-      console.error('Expenses live query error:', e);
-      return [];
-    }
-  }, [month, year, category, isSyncing]);
+  useEffect(() => {
+    let isMounted = true;
+    const fetchExpenses = async () => {
+      if (isMounted) setIsLoading(true);
+      try {
+        const res = await api.get('/expenses', { params: { month, year, category } });
+        if (isMounted) {
+          setExpenseData(res.data.data || []);
+        }
+      } catch (err) {
+        console.error('Expenses api error:', err);
+        if (isMounted) setExpenseData([]);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    
+    fetchExpenses();
+    return () => { isMounted = false; };
+  }, [month, year, category]);
 
   const handleDelete = async (e, id) => {
     e.stopPropagation();
@@ -52,17 +51,21 @@ export default function ExpensesListPage() {
       type: 'danger'
     });
     if (!confirmed) return;
+    // Start animation
+    setDeletingIds(prev => [...prev, id]);
+    await new Promise(r => setTimeout(r, 400));
     
     try {
-      await db.expenses.delete(id);
-      await queueSyncTask('expense', 'DELETE', { id });
+      await api.delete(`/expenses/${id}`);
+      setExpenseData(prev => prev ? prev.filter(e => e.id !== id) : prev);
     } catch (err) {
       console.error('Failed to delete expense:', err);
       alert('Failed to delete expense');
+      setDeletingIds(prev => prev.filter(delId => delId !== id)); // revert animation if failed
     }
   };
 
-  const loading = !expenseData && isSyncing;
+  const loading = isLoading;
   const allExpenses = expenseData || [];
 
   const staffSalaries = allExpenses.filter(e => e.is_staff_salary);
@@ -147,9 +150,18 @@ export default function ExpensesListPage() {
             )}
 
             {/* Regular Expenses */}
-            {otherExpenses.map(exp => (
-              <div key={exp.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)', cursor: 'pointer' }}
-                onClick={() => navigate(`/expenses/${exp.id}/edit`)}>
+            {otherExpenses.map(exp => {
+              const isDeleting = deletingIds.includes(exp.id);
+              return (
+                <div key={exp.id} className="card" 
+                  style={{ 
+                    display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)', cursor: 'pointer',
+                    transform: isDeleting ? 'translateX(100px)' : 'none',
+                    opacity: isDeleting ? 0 : 1,
+                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                    pointerEvents: isDeleting ? 'none' : 'auto'
+                  }}
+                  onClick={() => navigate(`/expenses/${exp.id}/edit`)}>
                 <div style={{ fontSize: 28, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', flexShrink: 0 }}>
                   {getCatIcon(exp.category)}
                 </div>
@@ -170,7 +182,8 @@ export default function ExpensesListPage() {
                   <Trash2 size={18} />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

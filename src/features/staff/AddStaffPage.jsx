@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
-import { db, queueSyncTask } from '../../lib/db';
+import api from '../../lib/api';
 import { generateId } from '../../lib/utils';
 import { todayStr } from '../../lib/utils';
 import { STAFF_ROLES } from '../../lib/constants';
@@ -34,8 +34,7 @@ export default function AddStaffPage() {
         ...form, 
         monthly_salary: Number(form.monthly_salary) || 0 
       };
-      await db.staff.add(payload);
-      await queueSyncTask('staff', 'CREATE', payload);
+      await api.post('/staff', payload);
       toast.success(`${form.name} added to staff!`);
       clearDraft();
       navigate('/staff');

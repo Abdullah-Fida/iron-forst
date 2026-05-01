@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import api from '../lib/api';
-import { seedLocalDatabase, clearLocalDatabase } from '../lib/db';
-import { notifySync } from '../lib/syncState';
+
 
 const AuthContext = createContext(null);
 
@@ -23,7 +22,7 @@ export function AuthProvider({ children }) {
           if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
         }
 
-        await clearLocalDatabase();
+
         const gymUser = {
           email,
           role: data.role,
@@ -35,10 +34,7 @@ export function AuthProvider({ children }) {
         localStorage.setItem('core_gym_user', JSON.stringify(gymUser));
         setUser(gymUser);
 
-        // Seed the database after login (only when online)
-        if (gymUser.role === 'gym_owner' && navigator.onLine) {
-          seedLocalDatabase();
-        }
+
 
         return { success: true, role: data.role };
       }
@@ -52,8 +48,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   const switchSession = useCallback(async (data) => {
-    // 1. Signal busy immediately to prevent dashboard "zero flicker"
-    notifySync(true);
 
     const keysToKeep = ['core_gym_theme'];
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -61,7 +55,7 @@ export function AuthProvider({ children }) {
       if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
     }
 
-    await clearLocalDatabase();
+
     const gymUser = {
       email: data.gym.email,
       role: data.role,
@@ -72,42 +66,11 @@ export function AuthProvider({ children }) {
     localStorage.setItem('core_gym_user', JSON.stringify(gymUser));
     setUser(gymUser);
 
-    // 2. Start the seeding process (it will call notifySync(false) when done)
-    if (navigator.onLine) {
-      seedLocalDatabase();
-    }
+
   }, []);
 
-  // ── Database Safeguard: Seed if empty on mount ──
-  useEffect(() => {
-    async function checkAndSeed() {
-      if (user?.role === 'gym_owner' && navigator.onLine) {
-        try {
-          const { db } = await import('../lib/db');
-          const count = await db.members.count();
-          if (count === 0) {
-            console.log('[Auth] Local DB is empty, triggering initial seed...');
-            seedLocalDatabase();
-          }
-        } catch (err) {
-          console.error('[Auth] Initial seed check failed', err);
-        }
-      }
-    }
-    checkAndSeed();
-  }, [user?.role]);
 
   const logout = useCallback(async () => {
-    // CRITICAL: Flush any pending sync tasks to the server BEFORE wiping local DB
-    // This prevents data loss when the user added data but it wasn't synced yet
-    if (navigator.onLine) {
-      try {
-        const { flushSyncQueue } = await import('../lib/db');
-        await flushSyncQueue();
-      } catch (err) {
-        console.error('[Auth] Failed to flush sync queue before logout:', err);
-      }
-    }
 
     const keysToKeep = ['core_gym_theme'];
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -115,12 +78,10 @@ export function AuthProvider({ children }) {
       if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
     }
     setUser(null);
-    await clearLocalDatabase();
+
   }, []);
 
-  // NOTE: seedLocalDatabase is no longer called on every page load.
-  // It is called only on fresh login (above) and after sync completes (in useSync.js).
-  // This prevents wiping offline data when the page reloads while online.
+
 
   // Active session polling for suspension check
   useEffect(() => {

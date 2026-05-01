@@ -8,7 +8,6 @@ import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
-import { db, queueSyncTask } from '../../lib/db';
 import { generateId } from '../../lib/utils';
 
 export default function AddMemberPage() {
@@ -109,35 +108,28 @@ export default function AddMemberPage() {
   // ── Step 1 Submit: Save member, go to Step 2 ──
   const handleMemberSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     if (!memberForm.name.trim()) { toast.error('Name is required'); return; }
     if (!memberForm.phone.trim()) { toast.error('Phone number is required'); return; }
     
     setLoading(true);
     try {
-      const duplicates = await db.members.where('phone').equals(memberForm.phone.trim()).toArray();
-      const isDuplicate = duplicates.some(m => m.name.trim().toLowerCase() === memberForm.name.trim().toLowerCase());
-
-      if (isDuplicate) {
-        toast.error('A member with this name and phone number already exists');
-        setLoading(false);
-        return;
-      }
-
+      // Server-side will handle duplicate checking on phone+name if needed
+      // (or we can just attempt to post and let the server return 409 if exists)
+      
       const id = generateId();
-      const memberData = { ...memberForm, id, last_sync: null };
+      const memberData = { ...memberForm, id };
       
-      // Save locally first
-      await db.members.add(memberData);
+      // DIRECT ONLINE API CALL
+      const res = await api.post('/members', memberData);
+      const serverMember = res.data.data;
       
-      // Queue for sync
-      await queueSyncTask('member', 'CREATE', memberData);
-      
-      setNewMember(memberData);
-      toast.success(`${memberData.name} added locally! (Offline Ready)`);
+      setNewMember(serverMember);
+      toast.success(`${serverMember.name} added successfully!`);
       setStep(2);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to add member locally');
+      toast.error(err.response?.data?.message || 'Failed to add member');
     } finally {
       setLoading(false);
     }
@@ -146,6 +138,7 @@ export default function AddMemberPage() {
   // ── Step 2 Submit: Save payment, go to member detail ──
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     // Handle free trial flow
     if (payForm.is_trial) {
       if (!payForm.trial_days || Number(payForm.trial_days) <= 0) { toast.error('Enter valid trial days'); return; }
@@ -166,16 +159,11 @@ export default function AddMemberPage() {
           last_sync: null
         };
 
-        await db.payments.add(paymentData);
-        await queueSyncTask('payment', 'CREATE', paymentData);
+        // DIRECT ONLINE API CALL
+        const res = await api.post('/payments', paymentData);
+        const serverPayment = res.data.data;
 
-        await db.members.update(newMember.id, {
-          status: 'trial',
-          latest_expiry: expiryDate
-        });
-
-        toast.success(`${newMember.name} is now on a free trial (Saved locally)`);
-        window.dispatchEvent(new CustomEvent('local-db-changed'));
+        toast.success(`${newMember.name} is now on a free trial!`);
         clearDraft();
         navigate(`/members/${newMember.id}`);
       } catch (err) {
@@ -228,18 +216,13 @@ export default function AddMemberPage() {
         last_sync: null
       };
 
-      await db.payments.add(paymentData);
-      await queueSyncTask('payment', 'CREATE', paymentData);
-
-      // Update the member locally to show them as active and set expiry
-      await db.members.update(newMember.id, {
-        status: 'active',
-        latest_expiry: estimatedExpiry
-      });
+      // DIRECT ONLINE API CALL
+      const res = await api.post('/payments', paymentData);
+      const serverPayment = res.data.data;
 
       // Build a single combined receipt
       const receiptData = {
-        ...paymentData,
+        ...serverPayment,
         member_name: newMember.name,
         member_phone: newMember.phone,
         expiry_date: estimatedExpiry,
@@ -257,11 +240,11 @@ export default function AddMemberPage() {
       setReceipts([receiptData]);
       setShowReceipts(true);
       window.dispatchEvent(new CustomEvent('local-db-changed'));
-      toast.success(`Payment saved locally for ${newMember.name}!`);
+      toast.success(`Payment saved successfully for ${newMember.name}!`);
       clearDraft();
     } catch (err) {
       console.error(err);
-      toast.error('Failed to log payment locally');
+      toast.error(err.response?.data?.message || 'Failed to log payment');
     } finally {
       setLoading(false);
     }

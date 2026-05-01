@@ -5,7 +5,7 @@ import {
   Dumbbell, Receipt, BarChart2, TrendingUp, Settings, 
   DollarSign, LogOut, ChevronRight, CheckCircle, Fingerprint
 } from 'lucide-react';
-import { db } from '../../lib/db';
+import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import './layout.css';
 
@@ -18,12 +18,13 @@ export default function Sidebar() {
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const localMembers = await db.members.toArray();
+        const res = await api.get('/members');
+        const localMembers = res.data.data || [];
         const now = new Date();
         let count = 0;
         
         localMembers.forEach(m => {
-          if (!m.latest_expiry || m.status === 'inactive') return;
+          if (!m.latest_expiry || m.status === 'inactive' || m.status === 'deleted') return;
           const expiryDate = new Date(m.latest_expiry);
           const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
           if (daysLeft <= 3) count++;
@@ -34,8 +35,6 @@ export default function Sidebar() {
       }
     };
     fetchCount();
-    window.addEventListener('local-db-changed', fetchCount);
-    return () => window.removeEventListener('local-db-changed', fetchCount);
   }, []);
 
   const menuGroups = [

@@ -57,7 +57,18 @@ export function getMemberStatus(expiryDate) {
 
 export function calculateMemberStatus(member) {
   if (member.status === 'deleted') return 'deleted';
-  const days = daysFromNow(member.latest_expiry);
+  
+  let actualExpiry = member.latest_expiry;
+  if (!actualExpiry && member.payments && member.payments.length > 0) {
+    const sorted = [...member.payments].sort((a, b) => {
+      const dateA = new Date(a.expiry_date || a.payment_date || 0);
+      const dateB = new Date(b.expiry_date || b.payment_date || 0);
+      return dateB - dateA;
+    });
+    actualExpiry = sorted[0].expiry_date || sorted[0].payment_date;
+  }
+
+  const days = daysFromNow(actualExpiry);
   let status = member.status;
   
   if (status === 'trial') {

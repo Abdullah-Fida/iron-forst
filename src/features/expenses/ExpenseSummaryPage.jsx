@@ -4,8 +4,6 @@ import { ArrowLeft, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-reac
 import api from '../../lib/api';
 import { formatPKR, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
-import { useSync } from '../../hooks/useSync';
-import { db } from '../../lib/db';
 import '../../styles/members.css';
 
 export default function ExpenseSummaryPage() {
@@ -16,15 +14,27 @@ export default function ExpenseSummaryPage() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const { isSyncing } = useSync();
-
   useEffect(() => {
+    let isMounted = true;
     const fetchSummary = async () => {
       setLoading(true);
       try {
-        const localExpenses = await db.expenses.toArray();
-        const localPayments = await db.payments.toArray();
-        const localStaffPayments = await db.staff_payments.toArray();
+        const [paymentsRes, expensesRes, staffRes] = await Promise.all([
+          api.get('/payments'),
+          api.get('/expenses'),
+          api.get('/staff')
+        ]);
+
+        if (!isMounted) return;
+
+        const localPayments = paymentsRes.data.data || [];
+        const localExpenses = expensesRes.data.data || [];
+        const staffData = staffRes.data.data || [];
+        
+        const localStaffPayments = [];
+        staffData.forEach(s => {
+          if (s.staff_payments) s.staff_payments.forEach(p => localStaffPayments.push(p));
+        });
 
         let filteredExpenses = localExpenses;
         let filteredPayments = localPayments;
@@ -65,14 +75,15 @@ export default function ExpenseSummaryPage() {
           byCategory
         });
       } catch (err) {
-        console.error('Failed to compute summary from local DB:', err);
+        console.error('Failed to compute summary from API:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     
-    if (!isSyncing) fetchSummary();
-  }, [year, viewMode, isSyncing]);
+    fetchSummary();
+    return () => { isMounted = false; };
+  }, [year, viewMode]);
 
   if (loading || !summary) return (
     <div className="page-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>

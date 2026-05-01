@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Check, Bell, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
-import { formatDate, getWhatsAppLink, getInitials, daysFromNow } from '../../lib/utils';
+import { formatDate, getWhatsAppLink, getInitials, daysFromNow, calculateMemberStatus } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
 import { ModernLoader } from '../../components/common/ModernLoader';
-import { useSync } from '../../hooks/useSync';
-import { db } from '../../lib/db';
 import '../../styles/members.css';
 
 export default function NotificationsPage() {
@@ -20,58 +18,66 @@ export default function NotificationsPage() {
   const [editNotif, setEditNotif] = useState(null);
   const [editMessage, setEditMessage] = useState('');
 
-  const { online, isSyncing } = useSync();
-
   const fetchNotifications = async () => {
     setLoading(true);
     let allNotifs = [];
 
     try {
-      const localMembers = await db.members.toArray();
+      // Fetch members from API to generate local notifications
+      const membersRes = await api.get('/members');
+      const localMembers = membersRes.data.data || [];
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
 
       localMembers.forEach(m => {
-        if (!m.latest_expiry || m.status === 'inactive') return;
-        const expiryDate = new Date(m.latest_expiry);
-        const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+        const mStatus = calculateMemberStatus(m);
+        if (mStatus === 'inactive' || mStatus === 'deleted') return;
+        
+        let actualExpiry = m.latest_expiry;
+        if (!actualExpiry && m.payments && m.payments.length > 0) {
+          const sorted = [...m.payments].sort((a,b) => new Date(b.expiry_date || b.payment_date) - new Date(a.expiry_date || a.payment_date));
+          actualExpiry = sorted[0].expiry_date || sorted[0].payment_date;
+        }
+        
+        if (!actualExpiry) return;
+
+        const expiryDate = new Date(actualExpiry);
+        const daysLeft = daysFromNow(actualExpiry);
         
         if (daysLeft < 0) {
           allNotifs.push({
-            id: `offline_exp_${m.id}`,
+            id: `exp_${m.id}`,
             member_id: m.id,
             notification_type: 'member_fee_expired',
             status: 'pending',
-            message_template: `Hi ${m.name}, your gym fee expired on ${formatDate(m.latest_expiry)}. Kindly pay to continue your membership.`,
+            message_template: `Hi ${m.name}, your gym fee expired on ${formatDate(actualExpiry)}. Kindly pay to continue your membership.`,
             scheduled_for: todayStr,
             members: m
           });
         } else if (daysLeft >= 0 && daysLeft <= 3) {
           allNotifs.push({
-            id: `offline_warn_${m.id}`,
+            id: `warn_${m.id}`,
             member_id: m.id,
             notification_type: 'member_fee_expiry_warning',
             status: 'pending',
-            message_template: `Hi ${m.name}, your gym fee will expire on ${formatDate(m.latest_expiry)}. Kindly prepare to renew!`,
+            message_template: `Hi ${m.name}, your gym fee will expire on ${formatDate(actualExpiry)}. Kindly prepare to renew!`,
             scheduled_for: todayStr,
             members: m
           });
         }
       });
-    } catch (err) {
-      console.error('Offline notification generation failed', err);
-    }
 
-    if (online) {
+      // Also fetch staff/system notifications from server
       try {
         const res = await api.get('/notifications', { params: { status: filter === 'all' ? undefined : filter } });
-        const apiNotifs = res.data.data;
-        // Merge in only non-member notifications (e.g. staff salary)
+        const apiNotifs = res.data.data || [];
         const staffNotifs = apiNotifs.filter(n => n.notification_type && !n.notification_type.includes('member'));
         allNotifs = [...allNotifs, ...staffNotifs];
       } catch (err) {
         console.error('Failed to fetch api notifications', err);
       }
+    } catch (err) {
+      console.error('Failed to fetch members for notifications', err);
     }
 
     const filtered = filter === 'all' ? allNotifs : allNotifs.filter(n => n.status === filter);
@@ -80,8 +86,8 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
-    if (!isSyncing) fetchNotifications();
-  }, [filter, online, isSyncing]);
+    fetchNotifications();
+  }, [filter]);
 
   const pendingCount = notifications.filter(n => n.status === 'pending').length;
 

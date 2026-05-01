@@ -3,7 +3,7 @@ import { Settings, LogOut, Wifi, WifiOff, Cloud, Sun, Moon } from 'lucide-react'
 import { useRef, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigation } from '../../contexts/NavigationContext';
-import { useSync } from '../../hooks/useSync';
+
 import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 import MoreDrawer from './MoreDrawer';
@@ -16,7 +16,7 @@ export default function GymLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { saveScroll, getScroll } = useNavigation();
-  const { online, isSyncing } = useSync();
+  const online = true; // App is now fully online
   const mainRef = useRef(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [mode, setMode] = useState(getActiveMode());
@@ -74,12 +74,7 @@ export default function GymLayout() {
           </div>
 
           <div className="gym-header-actions">
-            {isSyncing && <Cloud size={16} className="spin" style={{ color: 'var(--accent-primary)' }} title="Syncing..." />}
-            {!online ? (
-              <WifiOff size={18} style={{ color: 'var(--status-danger)' }} title="Offline" />
-            ) : (
-              <Wifi size={18} style={{ color: 'var(--status-active)' }} title="Online" />
-            )}
+
             <button
               className="btn btn-icon theme-toggle-btn"
               onClick={handleToggleMode}
