@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
 import { MemberSkeleton, StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { useSync } from '../../hooks/useSync';
-import { db } from '../../lib/db';
+import { db, queueSyncTask } from '../../lib/db';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import '../../styles/members.css';
 import '../../styles/loading.css';
 
@@ -18,6 +19,7 @@ export default function ExpensesListPage() {
   const [category, setCategory] = useState('');
   const year = getCurrentYear();
   const { isSyncing } = useSync();
+  const confirm = useConfirm();
 
   // ── LIVE QUERY: Reactive to Dexie changes (auto-refreshes on add/update/delete) ──
   const expenseData = useLiveQuery(async () => {
@@ -40,6 +42,25 @@ export default function ExpensesListPage() {
       return [];
     }
   }, [month, year, category, isSyncing]);
+
+  const handleDelete = async (e, id) => {
+    e.stopPropagation();
+    const confirmed = await confirm({
+      title: 'Delete Expense',
+      message: 'Are you sure you want to delete this expense? This action cannot be undone.',
+      confirmText: 'Delete',
+      type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    try {
+      await db.expenses.delete(id);
+      await queueSyncTask('expense', 'DELETE', { id });
+    } catch (err) {
+      console.error('Failed to delete expense:', err);
+      alert('Failed to delete expense');
+    }
+  };
 
   const loading = !expenseData && isSyncing;
   const allExpenses = expenseData || [];
@@ -140,6 +161,14 @@ export default function ExpensesListPage() {
                   </div>
                 </div>
                 <div style={{ fontWeight: 700, color: 'var(--status-danger)', whiteSpace: 'nowrap' }}>{formatPKR(exp.amount)}</div>
+                <button 
+                  className="btn btn-icon" 
+                  style={{ color: 'var(--status-danger)', background: 'rgba(255,118,117,0.1)' }}
+                  onClick={(e) => handleDelete(e, exp.id)}
+                  title="Delete Expense"
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
             ))}
           </div>
