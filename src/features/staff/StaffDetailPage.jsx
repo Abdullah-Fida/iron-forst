@@ -92,7 +92,7 @@ export default function StaffDetailPage() {
         payment_method: payForm.payment_method, 
         notes: payForm.notes,
       };
-      await api.post(`/staff/${id}/payments`, payload);
+      await api.post(`/staff/${id}/salary`, payload);
 
       toast.success(`Salary marked as paid for ${staff.name}!`);
       setShowPayForm(false);

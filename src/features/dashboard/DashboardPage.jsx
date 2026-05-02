@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('revenue');
+  const [earningFilter, setEarningFilter] = useState('today');
 
   const [hiddenMetrics, setHiddenMetrics] = useState(new Set());
 
@@ -108,14 +109,33 @@ export default function DashboardPage() {
       const totalExp = monthGeneralExpenses + salaryTotal;
 
       // Daily Earning Calculation (Local Timezone)
-      const todayStr = new Date().toLocaleDateString('en-CA'); // 'YYYY-MM-DD' in local time
-      const todaysPayments = allPayments.filter(p => {
-        if (!p.payment_date) return false;
-        // Parse date considering local timezone
+      const nowDt = new Date();
+      const todayStr = nowDt.toLocaleDateString('en-CA');
+      
+      const yesterday = new Date(nowDt);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toLocaleDateString('en-CA');
+
+      const sevenDaysAgo = new Date(nowDt);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      sevenDaysAgo.setHours(0,0,0,0);
+
+      let todayEarning = 0;
+      let yesterdayEarning = 0;
+      let sevenDaysEarning = 0;
+
+      allPayments.forEach(p => {
+        if (!p.payment_date) return;
         const d = new Date(p.payment_date);
-        return d.toLocaleDateString('en-CA') === todayStr;
+        const dStr = d.toLocaleDateString('en-CA');
+        const amt = Number(p.amount || 0);
+
+        if (dStr === todayStr) todayEarning += amt;
+        if (dStr === yesterdayStr) yesterdayEarning += amt;
+        
+        d.setHours(0,0,0,0);
+        if (d >= sevenDaysAgo) sevenDaysEarning += amt;
       });
-      const dailyEarning = todaysPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
       // 6 Month Trend
       const trend = [];
@@ -144,7 +164,7 @@ export default function DashboardPage() {
       }
 
         setDashboardData({
-          stats: { totalMembers, activeMembers, expiredCount, dueSoonCount, revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses, profit: revenue - totalExp, dailyEarning },
+          stats: { totalMembers, activeMembers, expiredCount, dueSoonCount, revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses, profit: revenue - totalExp, todayEarning, yesterdayEarning, sevenDaysEarning },
           revenueTrend: trend
         });
         setLoading(false);
@@ -239,8 +259,22 @@ export default function DashboardPage() {
     window.open(getWhatsAppLink(member.phone, msg), '_blank');
   };
 
+  let currentEarning = stats.todayEarning;
+  let earningLabel = "Today's Earnings";
+  let earningPct = "Resets daily";
+  
+  if (earningFilter === 'yesterday') {
+    currentEarning = stats.yesterdayEarning;
+    earningLabel = "Yesterday's Earnings";
+    earningPct = "Past 24h";
+  } else if (earningFilter === '7days') {
+    currentEarning = stats.sevenDaysEarning;
+    earningLabel = "Last 7 Days";
+    earningPct = "Weekly sum";
+  }
+
   const statCards = [
-    { key: 'daily', label: 'Today\'s Earnings', value: formatPKR(stats.dailyEarning || 0), icon: Zap, color: '#3b82f6', pct: 'Resets daily', onClick: () => navigate('/payments') },
+    { key: 'daily', label: earningLabel, value: formatPKR(currentEarning || 0), icon: Zap, color: '#3b82f6', pct: earningPct, onClick: () => navigate('/payments') },
     { key: 'active', label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
     { key: 'expired', label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
     { key: 'due', label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },
@@ -271,9 +305,23 @@ export default function DashboardPage() {
               <div className="stat-icon" style={{ background: s.color + '18' }}>
                 <s.icon size={20} style={{ color: s.color }} />
               </div>
-              <button className="btn-hide-metric-sm" onClick={(e) => toggleMetric(e, s.key)}>
-                {isHidden(s.key) ? <Eye size={14} /> : <EyeOff size={14} />}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {s.key === 'daily' && (
+                  <select 
+                    value={earningFilter} 
+                    onChange={(e) => { e.stopPropagation(); setEarningFilter(e.target.value); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="earning-select"
+                  >
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="7days">7 Days</option>
+                  </select>
+                )}
+                <button className="btn-hide-metric-sm" onClick={(e) => toggleMetric(e, s.key)}>
+                  {isHidden(s.key) ? <Eye size={14} /> : <EyeOff size={14} />}
+                </button>
+              </div>
             </div>
             <div className={`stat-value ${isHidden(s.key) ? 'masked-value' : ''}`} style={{ color: s.color }}>
               {isHidden(s.key) ? '••••••' : s.value}
