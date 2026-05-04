@@ -9,7 +9,7 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to attach JWT token
+// Request interceptor to attach JWT token and bust HTTP caches
 api.interceptors.request.use(
   (config) => {
     const saved = localStorage.getItem('core_gym_user');
@@ -19,6 +19,9 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${user.token}`;
       }
     }
+    // Cache-busting: append unique timestamp to prevent HTTP-level caching
+    // (Chromebooks / some browsers aggressively cache GET responses)
+    config.params = { ...config.params, _t: Date.now() };
     return config;
   },
   (error) => Promise.reject(error)
