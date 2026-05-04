@@ -1,29 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Edit, 
-  CreditCard, 
-  MessageCircle, 
-  Trash2, 
-  Printer, 
-  Phone, 
-  Calendar, 
-  ShieldAlert, 
+import {
+  ArrowLeft,
+  Edit,
+  CreditCard,
+  MessageCircle,
+  Trash2,
+  Printer,
+  Phone,
+  Calendar,
+  ShieldAlert,
   ReceiptText,
   Fingerprint
 } from 'lucide-react';
 import api from '../../lib/api';
 import { registerFingerprint } from '../../lib/biometrics';
 import { useAuth } from '../../contexts/AuthContext';
-import { 
-  getInitials, 
-  formatPKR, 
-  formatDate, 
-  formatDateTime, 
-  daysFromNow, 
-  buildWhatsAppMessage, 
-  getWhatsAppLink 
+import {
+  getInitials,
+  formatPKR,
+  formatDate,
+  formatDateTime,
+  daysFromNow,
+  buildWhatsAppMessage,
+  getWhatsAppLink
 } from '../../lib/utils';
 import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { useToast } from '../../contexts/ToastContext';
@@ -38,7 +38,7 @@ export default function MemberDetailPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  
+
   const [member, setMember] = useState(null);
   const [gym, setGym] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -57,7 +57,7 @@ export default function MemberDetailPage() {
           toast.error('Member not found');
           navigate('/members');
         }
-        
+
         try {
           const gRes = await api.get('/gym');
           setGym(gRes.data.data);
@@ -84,7 +84,7 @@ export default function MemberDetailPage() {
   if (!member) return null;
 
   const payments = member.payments || [];
-  
+
   // Robust fallback: if latest_expiry is null, calculate from the payments array
   let actualExpiry = member.latest_expiry;
   if (!actualExpiry && payments.length > 0) {
@@ -120,7 +120,7 @@ export default function MemberDetailPage() {
     try {
       toast.info('Please touch your fingerprint sensor...');
       const credentialId = await registerFingerprint(member);
-      
+
       // Direct API Call
       await api.put(`/members/${member.id}`, { fingerprint_id: credentialId });
       setMember({ ...member, fingerprint_id: credentialId });
@@ -146,19 +146,19 @@ export default function MemberDetailPage() {
   };
 
   const handleDelete = async () => {
-    const isConfirmed = await confirm({ 
-      title: 'Delete Member', 
-      message: `Are you sure you want to remove ${member.name}?`, 
-      confirmText: 'Delete', 
-      type: 'danger' 
+    const isConfirmed = await confirm({
+      title: 'Delete Member',
+      message: `Are you sure you want to remove ${member.name}?`,
+      confirmText: 'Delete',
+      type: 'danger'
     });
     if (!isConfirmed) return;
     try {
       await api.delete(`/members/${id}`);
       toast.success('Member removed');
       navigate('/members');
-    } catch (e) { 
-      toast.error('Failed to delete'); 
+    } catch (e) {
+      toast.error('Failed to delete');
     }
   };
 
@@ -181,115 +181,115 @@ export default function MemberDetailPage() {
 
       {/* Profile Central Header */}
       <div className="profile-center-header">
-         <div className={`profile-avatar-wrapper ${isExpired ? 'expired' : isDueSoon ? 'due' : 'active'}`}>
-            <div className="avatar avatar-xxl" style={{ borderRadius: '50%' }}>
-              {getInitials(member.name)}
-            </div>
-         </div>
-         <h1 className="profile-name">{member.name}</h1>
-         <div className="profile-subtitle">
-            <span className="phone"><Phone size={14} style={{marginRight: 4}}/> {member.phone}</span>
-            <span className={`status-pill ${isExpired ? 'expired' : isDueSoon ? 'due' : 'active'}`}>
-               {isExpired ? 'Expired' : isDueSoon ? 'Due Soon' : 'Active'}
-            </span>
-         </div>
+        <div className={`profile-avatar-wrapper ${isExpired ? 'expired' : isDueSoon ? 'due' : 'active'}`}>
+          <div className="avatar avatar-xxl" style={{ borderRadius: '50%' }}>
+            {getInitials(member.name)}
+          </div>
+        </div>
+        <h1 className="profile-name">{member.name}</h1>
+        <div className="profile-subtitle">
+          <span className="phone"><Phone size={14} style={{ marginRight: 4 }} /> {member.phone}</span>
+          <span className={`status-pill ${isExpired ? 'expired' : isDueSoon ? 'due' : 'active'}`}>
+            {isExpired ? 'Expired' : isDueSoon ? 'Due Soon' : 'Active'}
+          </span>
+        </div>
       </div>
 
       {/* Stats Cards */}
       <div className="profile-stats-row">
-          <div className="stat-box">
-             <div className="stat-label">Membership</div>
-             <div className={`stat-value ${isExpired ? 'danger' : isDueSoon ? 'warning' : 'success'}`}>
-                {days === null ? 'No Payment' : isExpired ? `${Math.abs(days)}d Overdue` : `${days} Days Left`}
-             </div>
+        <div className="stat-box">
+          <div className="stat-label">Membership</div>
+          <div className={`stat-value ${isExpired ? 'danger' : isDueSoon ? 'warning' : 'success'}`}>
+            {days === null ? 'No Payment' : isExpired ? `${Math.abs(days)}d Overdue` : `${days} Days Left`}
           </div>
-          <div className="stat-box">
-             <div className="stat-label">Transactions</div>
-             <div className="stat-value">{payments.length} Records</div>
-          </div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">Transactions</div>
+          <div className="stat-value">{payments.length} Records</div>
+        </div>
       </div>
 
       {/* Action Buttons */}
       <div className="profile-action-stack">
-          <button className="btn btn-primary btn-lg btn-block" onClick={() => navigate(`/payments/add?member=${id}`)}>
-            <CreditCard size={18} style={{marginRight:8}}/> Log New Payment
-          </button>
-          <button className="btn btn-whatsapp btn-lg btn-block" onClick={handleRemind}>
-            <MessageCircle size={18} style={{marginRight:8}}/> Message on WhatsApp
-          </button>
+        <button className="btn btn-primary btn-lg btn-block" onClick={() => navigate(`/payments/add?member=${id}`)}>
+          <CreditCard size={18} style={{ marginRight: 8 }} /> Log New Payment
+        </button>
+        <button className="btn btn-whatsapp btn-lg btn-block" onClick={handleRemind}>
+          <MessageCircle size={18} style={{ marginRight: 8 }} /> Message on WhatsApp
+        </button>
       </div>
 
       {/* Member Details Section */}
       <div className="profile-details-section">
-          <h3 className="section-title">Member Details</h3>
-          <div className="card detail-card">
-              <div className="detail-row">
-                 <div className="detail-item">
-                    <span className="label">Member Since</span>
-                    <span className="value">{formatDate(member.join_date)}</span>
-                 </div>
-                 <div className="detail-item">
-                    <span className="label">Emergency Contact</span>
-                    <span className="value">{member.emergency_contact || 'Not provided'}</span>
-                 </div>
-              </div>
-              {member.notes && (
-                <div style={{marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)'}}>
-                   <span className="label" style={{fontSize: '11px', textTransform:'uppercase', opacity: 0.6}}>Internal Notes</span>
-                   <p style={{fontSize: '14px', marginTop: '4px'}}>{member.notes}</p>
-                 </div>
-              )}
+        <h3 className="section-title">Member Details</h3>
+        <div className="card detail-card">
+          <div className="detail-row">
+            <div className="detail-item">
+              <span className="label">Member Since</span>
+              <span className="value">{formatDate(member.join_date)}</span>
+            </div>
+            <div className="detail-item">
+              <span className="label">Emergency Contact</span>
+              <span className="value">{member.emergency_contact || 'Not provided'}</span>
+            </div>
           </div>
+          {member.notes && (
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+              <span className="label" style={{ fontSize: '11px', textTransform: 'uppercase', opacity: 0.6 }}>Internal Notes</span>
+              <p style={{ fontSize: '14px', marginTop: '4px' }}>{member.notes}</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Biometric Access Section */}
-      <div className="profile-biometric-section" style={{marginTop: '32px'}}>
-          <h3 className="section-title">Security & Access</h3>
-          <div className="card" style={{padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-             <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-                <div style={{
-                  width: '48px', height: '48px', borderRadius: '12px', background: member.fingerprint_id ? 'var(--status-active-bg)' : 'var(--bg-tertiary)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: member.fingerprint_id ? 'var(--status-active)' : 'var(--text-muted)'
-                }}>
-                   <Fingerprint size={24} />
-                </div>
-                <div>
-                   <div style={{fontWeight: '700', fontSize: '15px'}}>Fingerprint Login</div>
-                   <div style={{fontSize: '12px', color: 'var(--text-muted)'}}>
-                      {member.fingerprint_id ? '✅ Identity Verified' : '❌ Not Registered'}
-                   </div>
-                </div>
-             </div>
-             <button className={`btn ${member.fingerprint_id ? 'btn-secondary' : 'btn-primary'} btn-sm`} onClick={handleRegisterFingerprint}>
-                {member.fingerprint_id ? 'Register New' : 'Add Fingerprint'}
-             </button>
+      <div className="profile-biometric-section" style={{ marginTop: '32px' }}>
+        <h3 className="section-title">Security & Access</h3>
+        <div className="card" style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{
+              width: '48px', height: '48px', borderRadius: '12px', background: member.fingerprint_id ? 'var(--status-active-bg)' : 'var(--bg-tertiary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: member.fingerprint_id ? 'var(--status-active)' : 'var(--text-muted)'
+            }}>
+              <Fingerprint size={24} />
+            </div>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '15px' }}>Fingerprint Login</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                {member.fingerprint_id ? '✅ Identity Verified' : '❌ Not Registered'}
+              </div>
+            </div>
           </div>
+          <button className={`btn ${member.fingerprint_id ? 'btn-secondary' : 'btn-primary'} btn-sm`} onClick={handleRegisterFingerprint}>
+            {member.fingerprint_id ? 'Register New' : 'Add Fingerprint'}
+          </button>
+        </div>
       </div>
 
       {/* Payment History Section */}
-      <div className="profile-history-section" style={{marginTop: '32px'}}>
-          <h3 className="section-title">Payment History</h3>
-          {payments.length === 0 ? (
-            <div className="card" style={{padding: '32px', textAlign: 'center', color: 'var(--text-muted)'}}>
-               No payment records found.
-            </div>
-          ) : (
-            <div className="history-list">
-              {payments.map(p => (
-                <div key={p.id} className="history-item-modern">
-                   <div className="history-icon"><ReceiptText size={18}/></div>
-                   <div className="history-main">
-                      <div className="history-title">{formatDate(p.payment_date)}</div>
-                      <div className="history-sub">{p.plan_duration_months} month plan • {p.payment_method}</div>
-                   </div>
-                   <div className="history-right">
-                      <div className="history-amount">{formatPKR(p.amount)}</div>
-                      <button className="btn-text-only" onClick={() => printReceipt(p)}><Printer size={14}/> Print</button>
-                   </div>
+      <div className="profile-history-section" style={{ marginTop: '32px' }}>
+        <h3 className="section-title">Payment History</h3>
+        {payments.length === 0 ? (
+          <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            No payment records found.
+          </div>
+        ) : (
+          <div className="history-list">
+            {payments.map(p => (
+              <div key={p.id} className="history-item-modern">
+                <div className="history-icon"><ReceiptText size={18} /></div>
+                <div className="history-main">
+                  <div className="history-title">{formatDate(p.payment_date)}</div>
+                  <div className="history-sub">{p.plan_duration_months} month plan • {p.payment_method}</div>
                 </div>
-              ))}
-            </div>
-          )}
+                <div className="history-right">
+                  <div className="history-amount">{formatPKR(p.amount)}</div>
+                  <button className="btn-text-only" onClick={() => printReceipt(p)}><Printer size={14} /> Print</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* WhatsApp Edit Modal */}
@@ -299,8 +299,8 @@ export default function MemberDetailPage() {
             <h2 style={{ marginBottom: 'var(--space-md)' }}>Edit WhatsApp Message</h2>
             <div className="form-group">
               <label className="form-label">Message Preview</label>
-              <textarea 
-                className="form-textarea" 
+              <textarea
+                className="form-textarea"
                 style={{ minHeight: 120 }}
                 value={editMessage}
                 onChange={e => setEditMessage(e.target.value)}

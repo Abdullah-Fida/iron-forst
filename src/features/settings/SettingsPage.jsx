@@ -14,7 +14,7 @@ export default function SettingsPage() {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  
+
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -52,25 +52,25 @@ export default function SettingsPage() {
 
         if (g) {
           setForm(prev => {
-             if (prev && prev.gym_name) return prev;
-             return {
-               gym_name: g.gym_name || '',
-               owner_name: g.owner_name || '',
-               phone: g.phone || '',
-               city: g.city || '',
-               address: g.address || '',
-               default_monthly_fee: String(g.default_monthly_fee || 0),
-               wa_msg_active: g.wa_msg_active || '',
-               wa_msg_due_soon: g.wa_msg_due_soon || '',
-               wa_msg_expired: g.wa_msg_expired || '',
-               attendance_active: g.attendance_active ?? false,
-             };
+            if (prev && prev.gym_name) return prev;
+            return {
+              gym_name: g.gym_name || '',
+              owner_name: g.owner_name || '',
+              phone: g.phone || '',
+              city: g.city || '',
+              address: g.address || '',
+              default_monthly_fee: String(g.default_monthly_fee || 0),
+              wa_msg_active: g.wa_msg_active || '',
+              wa_msg_due_soon: g.wa_msg_due_soon || '',
+              wa_msg_expired: g.wa_msg_expired || '',
+              attendance_active: g.attendance_active ?? false,
+            };
           });
         }
       } catch (err) {
         console.error('Failed to fetch gym settings', err);
         setForm({
-          gym_name: '', owner_name: '', phone: '', city: '', address: '', default_monthly_fee: '0', 
+          gym_name: '', owner_name: '', phone: '', city: '', address: '', default_monthly_fee: '0',
           wa_msg_active: '', wa_msg_due_soon: '', wa_msg_expired: '', attendance_active: false
         });
         toast.error('Running offline with no cached settings');
@@ -97,14 +97,14 @@ export default function SettingsPage() {
     try {
       const payload = { ...form, default_monthly_fee: Number(form.default_monthly_fee) };
       localStorage.setItem('core_gym_settings', JSON.stringify(payload));
-      
+
       try {
         await api.put('/gym', payload);
         toast.success('Settings saved!');
-      } catch(apiErr) {
+      } catch (apiErr) {
         toast.success('Settings saved locally (Offline mode)');
       }
-      
+
       clearDraft();
     } catch (err) {
       toast.error('Failed to save settings');
@@ -116,7 +116,7 @@ export default function SettingsPage() {
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     if (passForm.newPass !== passForm.confirm) { toast.error('Passwords do not match'); return; }
-    
+
     setIsChangingPass(true);
     try {
       await api.post('/auth/change-password', { gym_id: user.gym_id, current_password: passForm.current, new_password: passForm.newPass });

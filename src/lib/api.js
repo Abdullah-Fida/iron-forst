@@ -2,6 +2,11 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
+  headers: {
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  },
 });
 
 // Request interceptor to attach JWT token
@@ -24,7 +29,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
-    
+
     // 1. Automatic Retry Logic for Network Errors / 5xx Server Errors
     if (config && config.retryCount === undefined) {
       config.retryCount = 0;
@@ -43,11 +48,11 @@ api.interceptors.response.use(
     // 2. Auth / Suspension Logic
     if (error.response) {
       const { status, data, config: errConfig } = error.response;
-      
-      const isAuthPath = errConfig.url.includes('/auth/login') || 
-                        errConfig.url.includes('/auth/register') || 
-                        errConfig.url.includes('/auth/forgot-password') ||
-                        errConfig.url.includes('/auth/change-password');
+
+      const isAuthPath = errConfig.url.includes('/auth/login') ||
+        errConfig.url.includes('/auth/register') ||
+        errConfig.url.includes('/auth/forgot-password') ||
+        errConfig.url.includes('/auth/change-password');
 
       if (!isAuthPath) {
         if (status === 403 && data?.isSuspended) {

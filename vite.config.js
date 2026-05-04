@@ -22,8 +22,21 @@ export default defineConfig({
         icons: [] // Re-enable once icon files are created in public/
       },
       workbox: {
+        // Force immediate activation of new service worker
+        skipWaiting: true,
+        clientsClaim: true,
+        // Clean up old precached assets
+        cleanupOutdatedCaches: true,
+        // Only precache app shell assets (JS/CSS have content hashes, so new builds = new files)
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // CRITICAL: Prevent the NavigationRoute from caching API responses
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
+          // CRITICAL: API calls must ALWAYS go to network, NEVER be cached
+          {
+            urlPattern: /\/api\/.*/i,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
