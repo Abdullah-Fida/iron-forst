@@ -89,18 +89,28 @@ export default function DashboardPage() {
       const dueSoonCount = membersWithStatus.filter(m => m.status === 'due_soon').length;
 
       const now = new Date();
-      const thisMonth = now.getMonth();
+      const thisMonth = now.getMonth();   // 0-indexed
       const thisYear = now.getFullYear();
 
+      // ── Helper: parse YYYY-MM-DD safely without timezone issues ──
+      // new Date("2026-05-01") is UTC midnight — getMonth() in local tz can shift ±1 day
+      // So we parse the string directly instead.
+      const parseDateParts = (dateStr) => {
+        if (!dateStr) return { y: 0, m: -1, d: 0 };
+        const s = String(dateStr).slice(0, 10); // "YYYY-MM-DD"
+        const [y, m, d] = s.split('-').map(Number);
+        return { y, m: m - 1, d }; // m is 0-indexed to match JS getMonth()
+      };
+
       const thisMonthPayments = allPayments.filter(p => {
-        const d = new Date(p.payment_date);
-        return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+        const { y, m } = parseDateParts(p.payment_date);
+        return m === thisMonth && y === thisYear;
       });
       const revenue = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
       const thisMonthExpenses = allExpenses.filter(e => {
-        const d = new Date(e.expense_date);
-        return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+        const { y, m } = parseDateParts(e.expense_date);
+        return m === thisMonth && y === thisYear;
       });
       const monthGeneralExpenses = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
@@ -108,17 +118,23 @@ export default function DashboardPage() {
       const salaryTotal = thisMonthStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
       const totalExp = monthGeneralExpenses + salaryTotal;
 
-      // Daily Earning Calculation (Local Timezone)
+      // Daily Earning Calculation (timezone-safe)
       const nowDt = new Date();
-      const todayStr = nowDt.toLocaleDateString('en-CA');
-      
+      const todayY = nowDt.getFullYear();
+      const todayM = String(nowDt.getMonth() + 1).padStart(2, '0');
+      const todayD = String(nowDt.getDate()).padStart(2, '0');
+      const todayStr = `${todayY}-${todayM}-${todayD}`;
+
       const yesterday = new Date(nowDt);
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toLocaleDateString('en-CA');
+      const yestY = yesterday.getFullYear();
+      const yestM = String(yesterday.getMonth() + 1).padStart(2, '0');
+      const yestD = String(yesterday.getDate()).padStart(2, '0');
+      const yesterdayStr = `${yestY}-${yestM}-${yestD}`;
 
       const sevenDaysAgo = new Date(nowDt);
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      sevenDaysAgo.setHours(0,0,0,0);
+      const sevenStr = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
 
       let todayEarning = 0;
       let yesterdayEarning = 0;
@@ -126,15 +142,12 @@ export default function DashboardPage() {
 
       allPayments.forEach(p => {
         if (!p.payment_date) return;
-        const d = new Date(p.payment_date);
-        const dStr = d.toLocaleDateString('en-CA');
+        const dStr = String(p.payment_date).slice(0, 10); // "YYYY-MM-DD"
         const amt = Number(p.amount || 0);
 
         if (dStr === todayStr) todayEarning += amt;
         if (dStr === yesterdayStr) yesterdayEarning += amt;
-        
-        d.setHours(0,0,0,0);
-        if (d >= sevenDaysAgo) sevenDaysEarning += amt;
+        if (dStr >= sevenStr) sevenDaysEarning += amt;
       });
 
       // 6 Month Trend
@@ -142,17 +155,17 @@ export default function DashboardPage() {
       for (let i = 5; i >= 0; i--) {
         const d = new Date();
         d.setMonth(d.getMonth() - i);
-        const m = d.getMonth();
+        const m = d.getMonth();      // 0-indexed
         const y = d.getFullYear();
 
         const mPayments = allPayments.filter(p => {
-          const pd = new Date(p.payment_date);
-          return pd.getMonth() === m && pd.getFullYear() === y;
+          const parts = parseDateParts(p.payment_date);
+          return parts.m === m && parts.y === y;
         });
 
         const mExpenses = allExpenses.filter(e => {
-          const ed = new Date(e.expense_date);
-          return ed.getMonth() === m && ed.getFullYear() === y;
+          const parts = parseDateParts(e.expense_date);
+          return parts.m === m && parts.y === y;
         });
         const mStaffPayments = allStaffPayments.filter(p => p.month === m + 1 && p.year === y);
         const mSal = mStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);

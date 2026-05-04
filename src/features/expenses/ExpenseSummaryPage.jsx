@@ -40,20 +40,28 @@ export default function ExpenseSummaryPage() {
         let filteredPayments = localPayments;
         let filteredStaff = localStaffPayments;
 
+        // Timezone-safe date parser for YYYY-MM-DD strings
+        const getDateParts = (dateStr) => {
+          if (!dateStr) return { y: 0, m: 0 };
+          const s = String(dateStr).slice(0, 10);
+          const [y, m] = s.split('-').map(Number);
+          return { y, m }; // m is 1-indexed here
+        };
+
         if (viewMode === 'this_year') {
-          filteredExpenses = localExpenses.filter(e => new Date(e.expense_date).getFullYear() === year);
-          filteredPayments = localPayments.filter(p => new Date(p.payment_date).getFullYear() === year);
+          filteredExpenses = localExpenses.filter(e => getDateParts(e.expense_date).y === year);
+          filteredPayments = localPayments.filter(p => getDateParts(p.payment_date).y === year);
           filteredStaff = localStaffPayments.filter(p => p.year === year);
         } else if (viewMode !== 'all_time') {
           // specific month of current year
           const m = Number(viewMode);
           filteredExpenses = localExpenses.filter(e => {
-            const d = new Date(e.expense_date);
-            return d.getFullYear() === year && (d.getMonth() + 1) === m;
+            const parts = getDateParts(e.expense_date);
+            return parts.y === year && parts.m === m;
           });
           filteredPayments = localPayments.filter(p => {
-            const d = new Date(p.payment_date);
-            return d.getFullYear() === year && (d.getMonth() + 1) === m;
+            const parts = getDateParts(p.payment_date);
+            return parts.y === year && parts.m === m;
           });
           filteredStaff = localStaffPayments.filter(p => p.year === year && p.month === m);
         }

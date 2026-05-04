@@ -38,36 +38,46 @@ export default function RevenuePage() {
   let payments = [];
   let prevTotal = 0;
 
+  // Timezone-safe date parser for YYYY-MM-DD strings
+  const getDateParts = (dateStr) => {
+    if (!dateStr) return { y: 0, m: 0, d: 0, str: '' };
+    const s = String(dateStr).slice(0, 10);
+    const [y, m, d] = s.split('-').map(Number);
+    return { y, m: m - 1, d, str: s }; // m is 0-indexed to match JS getMonth()
+  };
+
   if (period === 'this_month') {
     payments = allPayments.filter(p => {
-      const d = new Date(p.payment_date);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      const { y, m } = getDateParts(p.payment_date);
+      return m === now.getMonth() && y === now.getFullYear();
     });
   } else if (period === 'last_3_months') {
     const cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    payments = allPayments.filter(p => new Date(p.payment_date) >= cutoff);
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
+    payments = allPayments.filter(p => getDateParts(p.payment_date).str >= cutoffStr);
   } else if (period === 'last_6_months') {
     const cutoff = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    payments = allPayments.filter(p => new Date(p.payment_date) >= cutoff);
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
+    payments = allPayments.filter(p => getDateParts(p.payment_date).str >= cutoffStr);
   } else if (period === 'this_year') {
-    payments = allPayments.filter(p => new Date(p.payment_date).getFullYear() === now.getFullYear());
+    payments = allPayments.filter(p => getDateParts(p.payment_date).y === now.getFullYear());
   } else if (period === 'all_time') {
     payments = allPayments;
   } else if (period.startsWith('month_')) {
-    const m = parseInt(period.split('_')[1], 10) - 1;
+    const targetM = parseInt(period.split('_')[1], 10) - 1; // 0-indexed
     payments = allPayments.filter(p => {
-      const d = new Date(p.payment_date);
-      return d.getMonth() === m && d.getFullYear() === now.getFullYear();
+      const { y, m } = getDateParts(p.payment_date);
+      return m === targetM && y === now.getFullYear();
     });
   }
 
   if (period === 'this_month' || period.startsWith('month_')) {
-    const m = period === 'this_month' ? now.getMonth() + 1 : parseInt(period.split('_')[1], 10);
-    const prevMonth = m === 1 ? 12 : m - 1;
-    const prevYear = m === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    const m1 = period === 'this_month' ? now.getMonth() + 1 : parseInt(period.split('_')[1], 10);
+    const prevMonth = m1 === 1 ? 12 : m1 - 1;
+    const prevYear = m1 === 1 ? now.getFullYear() - 1 : now.getFullYear();
     const prevPayments = allPayments.filter(p => {
-      const d = new Date(p.payment_date);
-      return d.getMonth() + 1 === prevMonth && d.getFullYear() === prevYear;
+      const { y, m } = getDateParts(p.payment_date);
+      return (m + 1) === prevMonth && y === prevYear;
     });
     prevTotal = prevPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
   }
