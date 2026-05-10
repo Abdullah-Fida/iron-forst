@@ -74,22 +74,7 @@ export default function AdminGymsPage() {
     }
   };
 
-  const handleDeleteGym = async (e, id, name) => {
-    e.stopPropagation(); // prevent row click
-    if (!window.confirm(`Are you absolutely sure you want to delete ${name}? This will remove ALL data for this gym and cannot be undone.`)) return;
-    
-    try {
-      setLoading(true);
-      await api.delete(`/admin/gyms/${id}`);
-      toast.success(`${name} deleted permanently.`);
-      setRefresh(r => r + 1);
-    } catch (err) {
-      toast.error('Failed to delete gym');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   return (
     <div className="admin-container">
@@ -168,14 +153,6 @@ export default function AdminGymsPage() {
                           title={g.is_active ? 'Suspend Gym' : 'Activate Gym'}
                         >
                           {g.is_active ? <PowerOff size={14} /> : <Power size={14} />} 
-                        </button>
-                        <button 
-                          className="btn btn-sm btn-danger" 
-                          onClick={(e) => handleDeleteGym(e, g.id, g.gym_name)}
-                          style={{ padding: '4px 8px', fontSize: 11, background: '#e03e3e', color: '#fff', border: 'none', fontWeight: 800, boxShadow: '2px 2px 0px #111' }}
-                          title="Delete Gym"
-                        >
-                          <Trash2 size={14} />
                         </button>
                       </div>
                     </td>

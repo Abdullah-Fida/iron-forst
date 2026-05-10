@@ -122,16 +122,7 @@ export default function AdminGymDetailPage() {
     }
   };
 
-  const handleDeleteGym = async () => {
-    if (!window.confirm('Delete this gym and all its data permanently?')) return;
-    try {
-      await api.delete(`/admin/gyms/${id}`);
-      toast.success('Gym purged.');
-      navigate('/admin/gyms');
-    } catch(err) {
-      toast.error('Purge failed');
-    }
-  };
+
 
   const handleAddNote = async () => {
     if (!newNote.trim()) return;
@@ -273,9 +264,6 @@ export default function AdminGymDetailPage() {
             <DollarSign size={16} style={{ marginRight: 6 }} /> Renew Now
           </button>
         )}
-        <button className="btn btn-danger btn-sm" style={{ marginLeft: 'auto' }} onClick={handleDeleteGym}>
-          <Trash2 size={16} style={{ marginRight: 6 }} /> Delete Gym
-        </button>
       </div>
 
       {/* ── Tabs ─── */}
