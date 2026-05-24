@@ -79,7 +79,10 @@
 /* ── Left Column: Welcome ── */
 .auth-welcome-col {
   flex: 1;
-  background: linear-gradient(145deg, var(--bg-tertiary) 0%, transparent 100%);
+  background: #f8fafc;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
   border-right: 1px solid var(--border-color);
   padding: 60px;
   display: flex;

@@ -201,7 +201,7 @@ export default function DashboardPage() {
     return () => { isMounted = false; };
   }, [cashDate, membersAddedDate, membersExpiringDate]);
 
-  if (loading && !dashboardData) {
+  if (loading) {
     return (
       <div className="page-container dashboard-page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
         <ModernLoader type="morph" text="Preparing Dashboard..." />
