@@ -4,7 +4,7 @@ import {
   Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
   UserPlus, CreditCard, Activity, Clock, AlertCircle, CalendarDays,
   TrendingDown, Zap, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  Minus, ChevronRight, Flame
+  Minus, ChevronRight, Flame, Loader2
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -201,7 +201,7 @@ export default function DashboardPage() {
     return () => { isMounted = false; };
   }, [cashDate, membersAddedDate, membersExpiringDate]);
 
-  if (loading) {
+  if (loading && !dashboardData) {
     return (
       <div className="page-container dashboard-page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
         <ModernLoader type="morph" text="Preparing Dashboard..." />
@@ -344,7 +344,7 @@ export default function DashboardPage() {
                 <div className="db-kpi-label">Cash Collected</div>
                 <input type="date" className="db-mini-date" value={cashDate} onChange={e => setCashDate(e.target.value)} />
               </div>
-              <div className="db-kpi-value">{formatPKR(stats.currCash)}</div>
+              <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : formatPKR(stats.currCash)}</div>
               <div className={`db-kpi-diff diff-${dir}`}>
                 {dir === 'up' && <ArrowUpRight size={12}/>}
                 {dir === 'down' && <ArrowDownRight size={12}/>}
@@ -365,7 +365,7 @@ export default function DashboardPage() {
                 <div className="db-kpi-label">Members Added</div>
                 <input type="date" className="db-mini-date" value={membersAddedDate} onChange={e => setMembersAddedDate(e.target.value)} />
               </div>
-              <div className="db-kpi-value">{stats.currMembersAdded}</div>
+              <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersAdded}</div>
               <div className={`db-kpi-diff diff-${dir}`}>
                 {dir === 'up' && <ArrowUpRight size={12}/>}
                 {dir === 'down' && <ArrowDownRight size={12}/>}
@@ -386,7 +386,7 @@ export default function DashboardPage() {
                 <div className="db-kpi-label">Expiring Today</div>
                 <input type="date" className="db-mini-date" value={membersExpiringDate} onChange={e => setMembersExpiringDate(e.target.value)} />
               </div>
-              <div className="db-kpi-value">{stats.currMembersExpiring}</div>
+              <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersExpiring}</div>
               <div className={`db-kpi-diff diff-${dir}`}>
                 {dir === 'up' && <ArrowUpRight size={12}/>}
                 {dir === 'down' && <ArrowDownRight size={12}/>}

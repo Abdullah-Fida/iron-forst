@@ -11,6 +11,15 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+.spin-anim {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ══════════════════════════════════════════
    HEADER
 ══════════════════════════════════════════ */
