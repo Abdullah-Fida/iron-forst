@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
-  ChevronRight, UserPlus, CreditCard, MessageCircle,
-  TrendingDown, Activity, Zap, Clock, Eye, EyeOff
+  UserPlus, CreditCard, Activity, Clock, AlertCircle, CalendarDays,
+  TrendingDown, Zap, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
+  Minus, ChevronRight, Flame
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -14,45 +15,54 @@ import { Bar, Line, Doughnut } from 'react-chartjs-2';
 import { StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatPKR, formatDateShort, daysFromNow, buildWhatsAppMessage, getWhatsAppLink, getMonthName, calculateMemberStatus } from '../../lib/utils';
+import { formatPKR, formatDateShort, getMonthName, calculateMemberStatus } from '../../lib/utils';
 import api from '../../lib/api';
 import '../../styles/dashboard.css';
 import '../../styles/loading.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
 
-const CHART_ORANGE = '#4f46e5';
-const CHART_BLACK = '#111827';
-const CHART_GRAY = '#f1f5f9';
-const CHART_GREEN = '#10b981';
-const CHART_RED = '#ef4444';
+const C_TEAL  = '#38bdf8';
+const C_GREEN  = '#34d399';
+const C_RED    = '#f87171';
+const C_AMBER  = '#fbbf24';
+const C_PURPLE = '#a78bfa';
+const C_DARK   = '#0b1116';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('revenue');
-  const [earningFilter, setEarningFilter] = useState('today');
 
-  const [hiddenMetrics, setHiddenMetrics] = useState(new Set());
+  const nowDt = new Date();
+  const todayY = nowDt.getFullYear();
+  const todayM = String(nowDt.getMonth() + 1).padStart(2, '0');
+  const todayD = String(nowDt.getDate()).padStart(2, '0');
+  const defaultToday = `${todayY}-${todayM}-${todayD}`;
 
-  const toggleMetric = (e, key) => {
-    e.stopPropagation();
-    setHiddenMetrics(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const isHidden = (key) => hiddenMetrics.has(key);
-
+  const [cashDate, setCashDate] = useState(defaultToday);
+  const [membersAddedDate, setMembersAddedDate] = useState(defaultToday);
+  const [membersExpiringDate, setMembersExpiringDate] = useState(defaultToday);
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const parseDateParts = (dateStr) => {
+    if (!dateStr) return { y: 0, m: -1, d: 0 };
+    const s = String(dateStr).slice(0, 10);
+    const [y, m, d] = s.split('-').map(Number);
+    return { y, m: m - 1, d };
+  };
+
+  const getPrevDateStr = (dateStr) => {
+    const dt = new Date(dateStr);
+    dt.setDate(dt.getDate() - 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     let isMounted = true;
     const fetchDashboard = async () => {
+      setLoading(true);
       try {
         const [membersRes, paymentsRes, expensesRes, staffRes] = await Promise.all([
           api.get('/members'),
@@ -60,200 +70,199 @@ export default function DashboardPage() {
           api.get('/expenses'),
           api.get('/staff')
         ]);
-        
         if (!isMounted) return;
 
-        const allMembers = membersRes.data.data || [];
-        const allPayments = paymentsRes.data.data || [];
-        const allExpenses = expensesRes.data.data || [];
-        const staffData = staffRes.data.data || [];
-        
+        const allMembers  = membersRes.data.data  || [];
+        const allPayments = paymentsRes.data.data  || [];
+        const allExpenses = expensesRes.data.data  || [];
+        const staffData   = staffRes.data.data     || [];
+
         const allStaffPayments = [];
         staffData.forEach(s => {
-          if (s.staff_payments) {
-            s.staff_payments.forEach(p => allStaffPayments.push(p));
+          if (s.staff_payments) s.staff_payments.forEach(p => allStaffPayments.push(p));
+        });
+
+        const activeMembersList = allMembers.filter(m => m.status !== 'deleted');
+        const membersWithStatus = activeMembersList.map(m => ({ ...m, status: calculateMemberStatus(m) }));
+
+        const totalMembers  = membersWithStatus.length;
+        const activeMembers = membersWithStatus.filter(m => m.status === 'active').length;
+        const expiredCount  = membersWithStatus.filter(m => m.status === 'expired').length;
+
+        const now = new Date();
+        const thisMonth = now.getMonth();
+        const thisYear  = now.getFullYear();
+
+        const thisMonthPayments = allPayments.filter(p => {
+          const { y, m } = parseDateParts(p.payment_date);
+          return m === thisMonth && y === thisYear;
+        });
+        const revenue = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+        const thisMonthExpenses = allExpenses.filter(e => {
+          const { y, m } = parseDateParts(e.expense_date);
+          return m === thisMonth && y === thisYear;
+        });
+        const monthGeneralExpenses = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const thisMonthStaffPay = allStaffPayments.filter(p => p.month === thisMonth + 1 && p.year === thisYear);
+        const salaryTotal = thisMonthStaffPay.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
+        const totalExp    = monthGeneralExpenses + salaryTotal;
+
+        let currMembersAdded = 0, prevMembersAdded = 0;
+        let currMembersExpiring = 0, prevMembersExpiring = 0;
+        let nearExpire3Days = 0;
+
+        const prevAddedStr    = getPrevDateStr(membersAddedDate);
+        const prevExpiringStr = getPrevDateStr(membersExpiringDate);
+
+        membersWithStatus.forEach(m => {
+          if (m.join_date) {
+            const jStr = String(m.join_date).slice(0, 10);
+            if (jStr === membersAddedDate)  currMembersAdded++;
+            if (jStr === prevAddedStr)      prevMembersAdded++;
+          }
+          if (m.latest_expiry) {
+            const eStr = String(m.latest_expiry).slice(0, 10);
+            if (eStr === membersExpiringDate)  currMembersExpiring++;
+            if (eStr === prevExpiringStr)      prevMembersExpiring++;
+            if (m.status !== 'expired') {
+              const target = new Date(m.latest_expiry);
+              target.setHours(0, 0, 0, 0);
+              const nowZ = new Date(); nowZ.setHours(0, 0, 0, 0);
+              const days = Math.ceil((target - nowZ) / (1000 * 60 * 60 * 24));
+              if (days >= 0 && days <= 3) nearExpire3Days++;
+            }
           }
         });
 
-      const activeMembersList = allMembers.filter(m => m.status !== 'deleted');
+        let currCash = 0, prevCash = 0;
+        const prevCashStr = getPrevDateStr(cashDate);
+        const planCounts  = {};
 
-      // Recalculate status from latest_expiry (DB status can be stale)
-      const membersWithStatus = activeMembersList.map(m => {
-        const status = calculateMemberStatus(m);
-        return { ...m, status };
-      });
-
-      const totalMembers = membersWithStatus.length;
-      const activeMembers = membersWithStatus.filter(m => m.status === 'active').length;
-      const expiredCount = membersWithStatus.filter(m => m.status === 'expired').length;
-      const dueSoonCount = membersWithStatus.filter(m => m.status === 'due_soon').length;
-
-      const now = new Date();
-      const thisMonth = now.getMonth();   // 0-indexed
-      const thisYear = now.getFullYear();
-
-      // ── Helper: parse YYYY-MM-DD safely without timezone issues ──
-      // new Date("2026-05-01") is UTC midnight — getMonth() in local tz can shift ±1 day
-      // So we parse the string directly instead.
-      const parseDateParts = (dateStr) => {
-        if (!dateStr) return { y: 0, m: -1, d: 0 };
-        const s = String(dateStr).slice(0, 10); // "YYYY-MM-DD"
-        const [y, m, d] = s.split('-').map(Number);
-        return { y, m: m - 1, d }; // m is 0-indexed to match JS getMonth()
-      };
-
-      const thisMonthPayments = allPayments.filter(p => {
-        const { y, m } = parseDateParts(p.payment_date);
-        return m === thisMonth && y === thisYear;
-      });
-      const revenue = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-      const thisMonthExpenses = allExpenses.filter(e => {
-        const { y, m } = parseDateParts(e.expense_date);
-        return m === thisMonth && y === thisYear;
-      });
-      const monthGeneralExpenses = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-
-      const thisMonthStaffPayments = allStaffPayments.filter(p => p.month === thisMonth + 1 && p.year === thisYear);
-      const salaryTotal = thisMonthStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
-      const totalExp = monthGeneralExpenses + salaryTotal;
-
-      // Daily Earning Calculation (timezone-safe)
-      const nowDt = new Date();
-      const todayY = nowDt.getFullYear();
-      const todayM = String(nowDt.getMonth() + 1).padStart(2, '0');
-      const todayD = String(nowDt.getDate()).padStart(2, '0');
-      const todayStr = `${todayY}-${todayM}-${todayD}`;
-
-      const yesterday = new Date(nowDt);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yestY = yesterday.getFullYear();
-      const yestM = String(yesterday.getMonth() + 1).padStart(2, '0');
-      const yestD = String(yesterday.getDate()).padStart(2, '0');
-      const yesterdayStr = `${yestY}-${yestM}-${yestD}`;
-
-      const sevenDaysAgo = new Date(nowDt);
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const sevenStr = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
-
-      let todayEarning = 0;
-      let yesterdayEarning = 0;
-      let sevenDaysEarning = 0;
-
-      allPayments.forEach(p => {
-        if (!p.payment_date) return;
-        const dStr = String(p.payment_date).slice(0, 10); // "YYYY-MM-DD"
-        const amt = Number(p.amount || 0);
-
-        if (dStr === todayStr) todayEarning += amt;
-        if (dStr === yesterdayStr) yesterdayEarning += amt;
-        if (dStr >= sevenStr) sevenDaysEarning += amt;
-      });
-
-      // 6 Month Trend
-      const trend = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const m = d.getMonth();      // 0-indexed
-        const y = d.getFullYear();
-
-        const mPayments = allPayments.filter(p => {
-          const parts = parseDateParts(p.payment_date);
-          return parts.m === m && parts.y === y;
+        allPayments.forEach(p => {
+          if (!p.payment_date) return;
+          const dStr = String(p.payment_date).slice(0, 10);
+          const amt  = Number(p.amount || 0);
+          if (dStr === cashDate)    currCash += amt;
+          if (dStr === prevCashStr) prevCash  += amt;
+          const { y, m } = parseDateParts(p.payment_date);
+          if (m === thisMonth && y === thisYear && amt > 0) {
+            const plan = p.plan_duration_months || 'Unknown';
+            const key  = String(plan) === 'custom' ? 'Custom Days' : `${plan} Month${plan > 1 ? 's' : ''}`;
+            if (!planCounts[key]) planCounts[key] = { count: 0, revenue: 0 };
+            planCounts[key].count   += 1;
+            planCounts[key].revenue += amt;
+          }
         });
 
-        const mExpenses = allExpenses.filter(e => {
-          const parts = parseDateParts(e.expense_date);
-          return parts.m === m && parts.y === y;
+        const popularPlans = Object.entries(planCounts)
+          .map(([label, data]) => ({ label, ...data }))
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 4);
+
+        const recentPayments = [...allPayments]
+          .sort((a, b) => new Date(b.created_at || b.payment_date) - new Date(a.created_at || a.payment_date))
+          .slice(0, 5);
+
+        const recentActivity = recentPayments.map(p => {
+          const member = allMembers.find(m => m.id === p.member_id);
+          return { ...p, member_name: member ? member.name : 'Unknown Member' };
         });
-        const mStaffPayments = allStaffPayments.filter(p => p.month === m + 1 && p.year === y);
-        const mSal = mStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
 
-        const mRev = mPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-        const mExp = mExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0) + mSal;
-
-        trend.push({ month: m + 1, revenue: mRev, expenses: mExp, profit: mRev - mExp });
-      }
+        const trend = [];
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(); d.setMonth(d.getMonth() - i);
+          const m = d.getMonth(), y = d.getFullYear();
+          const mPayments = allPayments.filter(p => { const parts = parseDateParts(p.payment_date); return parts.m === m && parts.y === y; });
+          const mExpenses = allExpenses.filter(e => { const parts = parseDateParts(e.expense_date); return parts.m === m && parts.y === y; });
+          const mSal = allStaffPayments.filter(p => p.month === m + 1 && p.year === y).reduce((s, p) => s + Number(p.amount_paid || 0), 0);
+          const mRev = mPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+          const mExp = mExpenses.reduce((s, e) => s + Number(e.amount || 0), 0) + mSal;
+          trend.push({ month: m + 1, revenue: mRev, expenses: mExp, profit: mRev - mExp });
+        }
 
         setDashboardData({
-          stats: { totalMembers, activeMembers, expiredCount, dueSoonCount, revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses, profit: revenue - totalExp, todayEarning, yesterdayEarning, sevenDaysEarning },
-          revenueTrend: trend
+          stats: {
+            totalMembers, activeMembers, expiredCount, dueSoonCount: nearExpire3Days,
+            revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses,
+            profit: revenue - totalExp,
+            currCash, prevCash, currMembersAdded, prevMembersAdded,
+            currMembersExpiring, prevMembersExpiring
+          },
+          popularPlans, recentActivity, revenueTrend: trend
         });
         setLoading(false);
       } catch (err) {
         console.error('Dash error:', err);
-        if (isMounted) {
-          setDashboardData({ error: true, msg: err.message || JSON.stringify(err) });
-          setLoading(false);
-        }
+        if (isMounted) { setDashboardData({ error: true, msg: err.message }); setLoading(false); }
       }
     };
     fetchDashboard();
     return () => { isMounted = false; };
-  }, []);
-  const stats = dashboardData?.stats;
-  const revenueTrend = dashboardData?.revenueTrend || [];
+  }, [cashDate, membersAddedDate, membersExpiringDate]);
 
-  if (loading || !dashboardData) {
+  if (loading && !dashboardData) {
     return (
       <div className="page-container dashboard-page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
         <ModernLoader type="morph" text="Preparing Dashboard..." />
       </div>
     );
   }
+  if (dashboardData?.error) return <div className="page-container"><StateView type="error" title="Dashboard Error" description={dashboardData.msg || 'Check connection.'} /></div>;
 
-  if (dashboardData.error) return <div className="page-container"><StateView type="error" title="Dashboard Error" description={dashboardData.msg ? `Error: ${dashboardData.msg}. Please send me a screenshot.` : "Check connection."} /></div>;
+  const stats          = dashboardData?.stats;
+  const revenueTrend   = dashboardData?.revenueTrend   || [];
+  const recentActivity = dashboardData?.recentActivity || [];
+  const popularPlans   = dashboardData?.popularPlans   || [];
 
   const revenueData = revenueTrend.map(d => d.revenue);
   const expenseData = revenueTrend.map(d => d.expenses);
-  const profitData = revenueTrend.map(d => d.profit);
+  const profitData  = revenueTrend.map(d => d.profit);
   const trendLabels = revenueTrend.map(d => getMonthName(d.month).slice(0, 3));
 
-  // ── Member Status Distribution ────────
-  const activeCount = stats.activeMembers;
+  const activeCount  = stats.activeMembers;
   const dueSoonCount = stats.dueSoonCount;
   const expiredCount = stats.expiredCount;
-  const totalCount = stats.totalMembers;
-  const noPayment = totalCount - (activeCount + dueSoonCount + expiredCount);
+  const totalCount   = stats.totalMembers;
+  const noPayment    = Math.max(0, totalCount - activeCount - dueSoonCount - expiredCount);
 
-  // ── Chart configs ────────────────────
-  const baseChartOpts = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { display: false }, tooltip: { backgroundColor: CHART_BLACK, titleColor: '#fff', bodyColor: '#ccc', borderColor: CHART_ORANGE, borderWidth: 1, cornerRadius: 0 } },
+  const getDiff = (curr, prev, isMoney = false) => {
+    const diff = curr - prev;
+    if (diff === 0) return { label: 'Same as yesterday', dir: 'neutral' };
+    const sign = diff > 0 ? '+' : '';
+    const val  = isMoney ? formatPKR(Math.abs(diff)) : Math.abs(diff);
+    return { label: `${sign}${val} vs yesterday`, dir: diff > 0 ? 'up' : 'down' };
+  };
+
+  const baseOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { backgroundColor: '#1a2630', titleColor: '#e6f1f6', bodyColor: '#b6c7d6', borderColor: '#243447', borderWidth: 1, cornerRadius: 8, padding: 10 }
+    },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#888', font: { weight: '700', size: 10 } }, border: { color: CHART_GRAY } },
-      y: { grid: { color: '#f0f0f0' }, ticks: { color: '#888', font: { weight: '600', size: 10 }, callback: v => v >= 1000 ? `${v / 1000}K` : v }, border: { color: CHART_GRAY } }
+      x: { grid: { display: false }, ticks: { color: '#8ea2b5', font: { weight: '700', size: 11 } }, border: { color: 'transparent' } },
+      y: { grid: { color: 'rgba(36,52,71,0.6)' }, ticks: { color: '#8ea2b5', font: { weight: '600', size: 10 }, callback: v => v >= 1000 ? `${v / 1000}K` : v }, border: { color: 'transparent' } }
     }
   };
 
   const revenueChartData = {
     labels: trendLabels,
     datasets: [
-      {
-        label: 'Revenue', data: revenueData, backgroundColor: CHART_ORANGE, borderColor: CHART_ORANGE, borderWidth: 2,
-        hoverBackgroundColor: '#e85f00'
-      },
-      {
-        label: 'Expenses', data: expenseData, backgroundColor: CHART_GRAY, borderColor: '#bbb', borderWidth: 2,
-        hoverBackgroundColor: '#ccc'
-      },
+      { label: 'Revenue',  data: revenueData, backgroundColor: 'rgba(56,189,248,0.85)', borderColor: C_TEAL,  borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_TEAL },
+      { label: 'Expenses', data: expenseData, backgroundColor: 'rgba(248,113,113,0.6)', borderColor: C_RED,   borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_RED  },
     ]
   };
 
   const profitChartData = {
     labels: trendLabels,
     datasets: [{
-      label: 'Profit',
-      data: profitData,
-      borderColor: CHART_ORANGE,
-      backgroundColor: 'rgba(255,107,0,0.08)',
+      label: 'Profit', data: profitData,
+      borderColor: C_GREEN, backgroundColor: 'rgba(52,211,153,0.08)',
       borderWidth: 2.5,
-      pointBackgroundColor: profitData.map(v => v >= 0 ? CHART_ORANGE : CHART_RED),
-      pointRadius: 4,
-      tension: 0.3,
-      fill: true,
+      pointBackgroundColor: profitData.map(v => v >= 0 ? C_GREEN : C_RED),
+      pointRadius: 5, pointHoverRadius: 7,
+      tension: 0.4, fill: true,
     }]
   };
 
@@ -261,207 +270,378 @@ export default function DashboardPage() {
     labels: ['Active', 'Due Soon', 'Expired', 'No Payment'],
     datasets: [{
       data: [activeCount, dueSoonCount, expiredCount, noPayment],
-      backgroundColor: [CHART_GREEN, '#e8a000', CHART_RED, '#bbbbbb'],
-      borderColor: [CHART_BLACK],
-      borderWidth: 2,
+      backgroundColor: [C_GREEN, C_AMBER, C_RED, '#243447'],
+      borderColor: [C_DARK], borderWidth: 3,
+      hoverOffset: 8,
     }]
   };
 
-  const handleRemind = (member) => {
-    const msg = `Hello ${member.name}, this is a reminder from ${user.name} regarding your gym membership renewal.`;
-    window.open(getWhatsAppLink(member.phone, msg), '_blank');
-  };
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  const greetEmoji = hour < 12 ? '☀️' : hour < 17 ? '⚡' : '🌙';
 
-  let currentEarning = stats.todayEarning;
-  let earningLabel = "Today's Earnings";
-  let earningPct = "Resets daily";
-  
-  if (earningFilter === 'yesterday') {
-    currentEarning = stats.yesterdayEarning;
-    earningLabel = "Yesterday's Earnings";
-    earningPct = "Past 24h";
-  } else if (earningFilter === '7days') {
-    currentEarning = stats.sevenDaysEarning;
-    earningLabel = "Last 7 Days";
-    earningPct = "Weekly sum";
-  }
-
-  const statCards = [
-    { key: 'daily', label: earningLabel, value: formatPKR(currentEarning || 0), icon: Zap, color: '#3b82f6', pct: earningPct, onClick: () => navigate('/payments') },
-    { key: 'active', label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
-    { key: 'expired', label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
-    { key: 'due', label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },
-    { key: 'revenue', label: 'Month Revenue', value: formatPKR(stats.revenue), icon: TrendingUp, color: CHART_ORANGE, pct: 'Total collected', onClick: () => navigate('/payments') },
-    { key: 'expenses', label: 'Total Expenses', value: formatPKR(stats.expenses), icon: TrendingDown, color: CHART_RED, pct: `Incl. ${formatPKR(stats.salaryTotal)} Salaries`, onClick: () => navigate('/expenses/summary') },
-    { key: 'profit', label: 'Net Profit', value: formatPKR(stats.profit), icon: DollarSign, color: (stats.profit || 0) >= 0 ? CHART_GREEN : CHART_RED, pct: (stats.profit || 0) >= 0 ? '▲ Profitable' : '▼ Loss', onClick: () => navigate('/expenses/summary') },
+  const QUICK_ACTIONS = [
+    { icon: <UserPlus size={16}/>,      label: 'Add Member',    path: '/members/add',            color: 'qa-teal'   },
+    { icon: <CreditCard size={16}/>,    label: 'Collect Fee',   path: '/payments/add',           color: 'qa-green'  },
+    { icon: <AlertTriangle size={16}/>, label: 'View Expired',  path: '/members?status=expired', color: 'qa-red'    },
+    { icon: <CalendarCheck size={16}/>, label: 'Attendance',    path: '/attendance',             color: 'qa-purple' },
   ];
 
   return (
     <div className="page-container dashboard-page">
-      {/* ── Header ─── */}
-      <div className="dash-header">
-        <div>
-          <p className="dash-greeting">Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'} 👋</p>
-          <h1 className="page-title">Dashboard</h1>
+
+      {/* ══════════════════════════════════════════
+          HEADER
+      ══════════════════════════════════════════ */}
+      <div className="db-header">
+        <div className="db-header-left">
+          <span className="db-greeting-tag">{greetEmoji} {greeting}</span>
+          <h1 className="db-title">Welcome, <span>{user?.name || 'Gym Owner'}</span></h1>
+          <p className="db-subtitle">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </p>
         </div>
-        <div className="dash-live">
-          <span className="live-dot"></span>
-          <span>LIVE</span>
+        <div className="db-header-right">
+          <div className="db-live-badge">
+            <span className="db-live-dot" />
+            LIVE DATA
+          </div>
         </div>
       </div>
 
-      {/* ── Stat Cards ─── */}
-      <div className="stats-grid">
-        {statCards.map((s, i) => (
-          <div key={i} className={'stat-card'} style={{ '--stat-color': s.color, cursor: s.onClick ? 'pointer' : 'default' }} onClick={s.onClick}>
-            <div className="stat-card-header">
-              <div className="stat-icon" style={{ background: s.color + '18' }}>
-                <s.icon size={20} style={{ color: s.color }} />
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {s.key === 'daily' && (
-                  <select 
-                    value={earningFilter} 
-                    onChange={(e) => { e.stopPropagation(); setEarningFilter(e.target.value); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="earning-select"
-                  >
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="7days">7 Days</option>
-                  </select>
-                )}
-                <button className="btn-hide-metric-sm" onClick={(e) => toggleMetric(e, s.key)}>
-                  {isHidden(s.key) ? <Eye size={14} /> : <EyeOff size={14} />}
-                </button>
-              </div>
-            </div>
-            <div className={`stat-value ${isHidden(s.key) ? 'masked-value' : ''}`} style={{ color: s.color }}>
-              {isHidden(s.key) ? '••••••' : s.value}
-            </div>
-            <div className="stat-label">{s.label}</div>
-            <div className="stat-pct">{s.pct}</div>
-          </div>
+      {/* ══════════════════════════════════════════
+          QUICK ACTIONS
+      ══════════════════════════════════════════ */}
+      <div className="db-quick-actions">
+        {QUICK_ACTIONS.map(qa => (
+          <button key={qa.label} className={`db-qa-btn ${qa.color}`} onClick={() => navigate(qa.path)}>
+            <span className="db-qa-icon">{qa.icon}</span>
+            <span className="db-qa-label">{qa.label}</span>
+            <ChevronRight size={13} className="db-qa-arrow" />
+          </button>
         ))}
       </div>
 
-      {/* ── Chart Tabs ─── */}
-      <div className="chart-section">
-        <div className="chart-tabs">
-          {[
-            { key: 'revenue', label: '💰 Revenue' },
-            { key: 'profit', label: '📈 Profit' },
-            { key: 'members', label: '👥 Members' },
-          ].map(t => (
-            <button key={t.key} className={`chart-tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
-              {t.label}
-            </button>
-          ))}
+      {/* ══════════════════════════════════════════
+          SECTION LABEL — DAILY SNAPSHOT
+      ══════════════════════════════════════════ */}
+      <div className="db-section-label">
+        <Activity size={14} />
+        Daily Snapshot
+      </div>
+
+      {/* ══════════════════════════════════════════
+          KPI CARDS — 3 COLS
+      ══════════════════════════════════════════ */}
+      <div className="db-kpi-grid">
+
+        {/* Cash Collected */}
+        {(() => {
+          const { label, dir } = getDiff(stats.currCash, stats.prevCash, true);
+          return (
+            <div className="db-kpi-card kpi-green">
+              <div className="db-kpi-top">
+                <div className="db-kpi-label">Cash Collected</div>
+                <input type="date" className="db-mini-date" value={cashDate} onChange={e => setCashDate(e.target.value)} />
+              </div>
+              <div className="db-kpi-value">{formatPKR(stats.currCash)}</div>
+              <div className={`db-kpi-diff diff-${dir}`}>
+                {dir === 'up' && <ArrowUpRight size={12}/>}
+                {dir === 'down' && <ArrowDownRight size={12}/>}
+                {dir === 'neutral' && <Minus size={12}/>}
+                {label}
+              </div>
+              <div className="db-kpi-bg-icon"><DollarSign size={64}/></div>
+            </div>
+          );
+        })()}
+
+        {/* Members Added */}
+        {(() => {
+          const { label, dir } = getDiff(stats.currMembersAdded, stats.prevMembersAdded);
+          return (
+            <div className="db-kpi-card kpi-teal">
+              <div className="db-kpi-top">
+                <div className="db-kpi-label">Members Added</div>
+                <input type="date" className="db-mini-date" value={membersAddedDate} onChange={e => setMembersAddedDate(e.target.value)} />
+              </div>
+              <div className="db-kpi-value">{stats.currMembersAdded}</div>
+              <div className={`db-kpi-diff diff-${dir}`}>
+                {dir === 'up' && <ArrowUpRight size={12}/>}
+                {dir === 'down' && <ArrowDownRight size={12}/>}
+                {dir === 'neutral' && <Minus size={12}/>}
+                {label}
+              </div>
+              <div className="db-kpi-bg-icon"><UserPlus size={64}/></div>
+            </div>
+          );
+        })()}
+
+        {/* Expiring Today */}
+        {(() => {
+          const { label, dir } = getDiff(stats.currMembersExpiring, stats.prevMembersExpiring);
+          return (
+            <div className="db-kpi-card kpi-red">
+              <div className="db-kpi-top">
+                <div className="db-kpi-label">Expiring Today</div>
+                <input type="date" className="db-mini-date" value={membersExpiringDate} onChange={e => setMembersExpiringDate(e.target.value)} />
+              </div>
+              <div className="db-kpi-value">{stats.currMembersExpiring}</div>
+              <div className={`db-kpi-diff diff-${dir}`}>
+                {dir === 'up' && <ArrowUpRight size={12}/>}
+                {dir === 'down' && <ArrowDownRight size={12}/>}
+                {dir === 'neutral' && <Minus size={12}/>}
+                {label}
+              </div>
+              <div className="db-kpi-bg-icon"><AlertTriangle size={64}/></div>
+            </div>
+          );
+        })()}
+
+      </div>
+
+      {/* ══════════════════════════════════════════
+          MONTHLY OVERVIEW ROW — 4 STAT PILLS
+      ══════════════════════════════════════════ */}
+      <div className="db-monthly-strip">
+        <div className="db-monthly-card">
+          <div className="db-monthly-icon icon-teal"><TrendingUp size={16}/></div>
+          <div>
+            <div className="db-monthly-label">Monthly Revenue</div>
+            <div className="db-monthly-value text-teal">{formatPKR(stats.revenue)}</div>
+          </div>
         </div>
-
-        <div className="chart-wrapper">
-          {activeTab === 'revenue' && (
-            <>
-              <div className="chart-header">
-                <div>
-                  <div className="chart-title">Revenue vs Expenses</div>
-                  <div className="chart-subtitle">Last 6 months — PKR</div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 11, fontWeight: 700 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: CHART_ORANGE, display: 'inline-block', border: '2px solid #111' }}></span> Revenue</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: CHART_GRAY, display: 'inline-block', border: '2px solid #111' }}></span> Expenses</span>
-                </div>
-              </div>
-              <div style={{ height: 200 }}>
-                <Bar data={revenueChartData} options={{ ...baseChartOpts, plugins: { ...baseChartOpts.plugins, tooltip: { ...baseChartOpts.plugins.tooltip, callbacks: { label: ctx => ` ${formatPKR(ctx.raw)}` } } } }} />
-              </div>
-            </>
-          )}
-          {activeTab === 'profit' && (
-            <>
-              <div className="chart-header">
-                <div>
-                  <div className="chart-title">Net Profit Trend</div>
-                  <div className="chart-subtitle">Revenue minus expenses — 6 months</div>
-                </div>
-              </div>
-              <div style={{ height: 200 }}>
-                <Line data={profitChartData} options={{ ...baseChartOpts, scales: { ...baseChartOpts.scales, y: { ...baseChartOpts.scales.y, ticks: { ...baseChartOpts.scales.y.ticks, callback: v => v >= 1000 ? `${v / 1000}K` : v >= 0 ? v : `-${Math.abs(v) >= 1000 ? Math.abs(v) / 1000 + 'K' : Math.abs(v)}` } } } }} />
-              </div>
-            </>
-          )}
-
-          {activeTab === 'members' && (
-            <>
-              <div className="chart-header">
-                <div className="chart-subtitle">{stats.totalMembers} total members</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)' }}>
-                <div style={{ width: 140, height: 140, flexShrink: 0 }}>
-                  <Doughnut data={memberDonutData} options={{ responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { display: false }, tooltip: { backgroundColor: CHART_BLACK, cornerRadius: 0 } } }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  {[
-                    { label: 'Active', count: activeCount, color: CHART_GREEN },
-                    { label: 'Due Soon', count: dueSoonCount, color: '#e8a000' },
-                    { label: 'Expired', count: expiredCount, color: CHART_RED },
-                    { label: 'No Payment', count: noPayment, color: '#bbb' },
-                  ].map(item => (
-                    <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      <span style={{ width: 12, height: 12, background: item.color, flexShrink: 0, border: '2px solid #111' }}></span>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{item.label}</span>
-                      <span style={{ fontWeight: 800, fontSize: 15, color: item.color }}>{item.count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+        <div className="db-strip-divider" />
+        <div className="db-monthly-card">
+          <div className="db-monthly-icon icon-red"><TrendingDown size={16}/></div>
+          <div>
+            <div className="db-monthly-label">Total Expenses</div>
+            <div className="db-monthly-value text-red">{formatPKR(stats.expenses)}</div>
+          </div>
+        </div>
+        <div className="db-strip-divider" />
+        <div className="db-monthly-card">
+          <div className="db-monthly-icon icon-purple"><Users size={16}/></div>
+          <div>
+            <div className="db-monthly-label">Active Members</div>
+            <div className="db-monthly-value text-purple">{stats.activeMembers} <span className="db-monthly-of">/ {stats.totalMembers}</span></div>
+          </div>
         </div>
       </div>
 
-      {/* ── This Month At-a-glance ─── */}
-      <div className="month-summary">
-        <div className="section-title">THIS MONTH</div>
-        <div className="summary-grid">
-          <div className="summary-item">
-            <div className="summary-item-header">
-              <div className={`summary-value ${isHidden('summary-rev') ? 'masked-value' : ''}`} style={{ color: CHART_ORANGE }}>
-                {isHidden('summary-rev') ? '••••••' : formatPKR(stats.revenue)}
-              </div>
-              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summary-rev')}>
-                {isHidden('summary-rev') ? <Eye size={12} /> : <EyeOff size={12} />}
-              </button>
-            </div>
-            <div className="summary-label">Revenue</div>
+      {/* ══════════════════════════════════════════
+          MAIN CONTENT — 2 COLUMNS
+      ══════════════════════════════════════════ */}
+      <div className="db-main-grid">
+
+        {/* ── LEFT COL ── */}
+        <div className="db-left-col">
+
+          {/* ─ Recent Payments ─ */}
+          <div className="db-section-label">
+            <CreditCard size={14} />
+            Recent Payments
           </div>
-          <div className="summary-item">
-            <div className="summary-item-header">
-              <div className={`summary-value ${isHidden('summary-exp') ? 'masked-value' : ''}`} style={{ color: CHART_RED }}>
-                {isHidden('summary-exp') ? '••••••' : formatPKR(stats.expenses)}
+          <div className="db-panel">
+            {recentActivity.length > 0 ? (
+              <div className="db-payments-list">
+                {recentActivity.map((p, i) => (
+                  <div key={i} className="db-payment-row">
+                    <div className="db-payment-avatar">
+                      {(p.member_name || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="db-payment-info">
+                      <div className="db-payment-name">{p.member_name}</div>
+                      <div className="db-payment-date">{formatDateShort(p.payment_date || p.created_at)}</div>
+                    </div>
+                    <div className="db-payment-amount">+{formatPKR(p.amount)}</div>
+                  </div>
+                ))}
               </div>
-              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summary-exp')}>
-                {isHidden('summary-exp') ? <Eye size={12} /> : <EyeOff size={12} />}
-              </button>
-            </div>
-            <div className="summary-label">Total Expenses</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>({formatPKR(stats.generalExpenses)} Exp + {formatPKR(stats.salaryTotal)} Salaries)</div>
+            ) : (
+              <div className="db-empty">No recent payments recorded.</div>
+            )}
+            <button className="db-view-all-btn" onClick={() => navigate('/payments')}>
+              View All Payments <ChevronRight size={14}/>
+            </button>
           </div>
-          <div className="summary-item">
-            <div className="summary-item-header">
-              <div className={`summary-value ${isHidden('summary-profit') ? 'masked-value' : ''}`} style={{ color: stats.profit >= 0 ? CHART_GREEN : CHART_RED }}>
-                {isHidden('summary-profit') ? '••••••' : formatPKR(stats.profit)}
+
+          {/* ─ Charts Panel ─ */}
+          <div className="db-section-label" style={{ marginTop: 8 }}>
+            <BarChart3 size={14} />
+            Analytics
+          </div>
+          <div className="db-panel db-chart-panel">
+            <div className="db-chart-tabs">
+              {[
+                { key: 'revenue', icon: <BarChart3 size={13}/>, label: 'Revenue vs Expenses' },
+                { key: 'members', icon: <PieChart size={13}/>,  label: 'Members' },
+              ].map(t => (
+                <button key={t.key} className={`db-chart-tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
+                  {t.icon}
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="db-chart-body">
+              {activeTab === 'revenue' && (
+                <>
+                  <div className="db-chart-meta">
+                    <div>
+                      <div className="db-chart-title">Revenue vs Expenses</div>
+                      <div className="db-chart-sub">Last 6 months · PKR</div>
+                    </div>
+                    <div className="db-chart-legend">
+                      <span className="db-legend-dot" style={{ background: C_TEAL }}/> Revenue
+                      <span className="db-legend-dot" style={{ background: C_RED, marginLeft: 12 }}/> Expenses
+                    </div>
+                  </div>
+                  <div style={{ height: 240 }}>
+                    <Bar data={revenueChartData} options={{ ...baseOpts, plugins: { ...baseOpts.plugins, tooltip: { ...baseOpts.plugins.tooltip, callbacks: { label: ctx => ` ${formatPKR(ctx.raw)}` } } } }} />
+                  </div>
+                </>
+              )}
+              {activeTab === 'members' && (
+                <>
+                  <div className="db-chart-meta">
+                    <div>
+                      <div className="db-chart-title">Member Distribution</div>
+                      <div className="db-chart-sub">{stats.totalMembers} total members</div>
+                    </div>
+                  </div>
+                  <div className="db-donut-wrap">
+                    <div style={{ width: 200, height: 200, flexShrink: 0 }}>
+                      <Doughnut data={memberDonutData} options={{ responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a2630', cornerRadius: 8 } } }} />
+                    </div>
+                    <div className="db-donut-legend">
+                      {[
+                        { label: 'Active',     count: activeCount,  color: C_GREEN  },
+                        { label: 'Due Soon',   count: dueSoonCount, color: C_AMBER  },
+                        { label: 'Expired',    count: expiredCount, color: C_RED    },
+                        { label: 'No Payment', count: noPayment,    color: '#243447'},
+                      ].map(item => (
+                        <div key={item.label} className="db-legend-row">
+                          <span className="db-legend-swatch" style={{ background: item.color }} />
+                          <span className="db-legend-name">{item.label}</span>
+                          <span className="db-legend-cnt" style={{ color: item.color }}>{item.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+        </div>
+
+        {/* ── RIGHT COL ── */}
+        <div className="db-right-col">
+
+          {/* ─ Membership Status ─ */}
+          <div className="db-section-label">
+            <AlertCircle size={14} />
+            Membership Status
+          </div>
+          <div className="db-panel">
+            <div className="db-status-list">
+              <div className="db-status-row status-danger" onClick={() => navigate('/members?status=expired')}>
+                <div className="db-status-left">
+                  <div className="db-status-icon"><AlertCircle size={16}/></div>
+                  <div>
+                    <div className="db-status-label">Total Expired</div>
+                    <div className="db-status-hint">Click to view</div>
+                  </div>
+                </div>
+                <div className="db-status-count">{stats.expiredCount}</div>
               </div>
-              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summary-profit')}>
-                {isHidden('summary-profit') ? <Eye size={12} /> : <EyeOff size={12} />}
-              </button>
+
+              <div className="db-status-row status-warning">
+                <div className="db-status-left">
+                  <div className="db-status-icon"><Clock size={16}/></div>
+                  <div>
+                    <div className="db-status-label">Expiring in 3 Days</div>
+                    <div className="db-status-hint">Needs attention</div>
+                  </div>
+                </div>
+                <div className="db-status-count">{stats.dueSoonCount}</div>
+              </div>
+
+              <div className="db-status-row status-success">
+                <div className="db-status-left">
+                  <div className="db-status-icon"><Users size={16}/></div>
+                  <div>
+                    <div className="db-status-label">Active Members</div>
+                    <div className="db-status-hint">Out of {stats.totalMembers} total</div>
+                  </div>
+                </div>
+                <div className="db-status-count">{stats.activeMembers}</div>
+              </div>
             </div>
-            <div className="summary-label">Net Profit</div>
           </div>
+
+          {/* ─ Monthly Financials ─ */}
+          <div className="db-section-label" style={{ marginTop: 8 }}>
+            <DollarSign size={14} />
+            Monthly Financials
+          </div>
+          <div className="db-panel">
+            <div className="db-fin-row">
+              <span className="db-fin-label">Revenue</span>
+              <span className="db-fin-val text-teal">{formatPKR(stats.revenue)}</span>
+            </div>
+            <div className="db-fin-breakdown">
+              <div className="db-fin-sub-row">
+                <span className="db-fin-sub-label">General Expenses</span>
+                <span className="db-fin-sub-val">{formatPKR(stats.generalExpenses)}</span>
+              </div>
+              <div className="db-fin-sub-row">
+                <span className="db-fin-sub-label">Staff Salaries</span>
+                <span className="db-fin-sub-val">{formatPKR(stats.salaryTotal)}</span>
+              </div>
+            </div>
+            <div className="db-fin-row">
+              <span className="db-fin-label">Total Expenses</span>
+              <span className="db-fin-val text-red">{formatPKR(stats.expenses)}</span>
+            </div>
+          </div>
+
+          {/* ─ Popular Plans ─ */}
+          <div className="db-section-label" style={{ marginTop: 8 }}>
+            <Flame size={14} />
+            Popular Plans — This Month
+          </div>
+          <div className="db-panel">
+            {popularPlans.length > 0 ? (
+              <div className="db-plans-list">
+                {popularPlans.map((plan, idx) => {
+                  const maxRevenue = popularPlans[0].revenue;
+                  const pct = maxRevenue > 0 ? (plan.revenue / maxRevenue) * 100 : 0;
+                  return (
+                    <div key={idx} className="db-plan-item">
+                      <div className="db-plan-header">
+                        <div>
+                          <div className="db-plan-label">{plan.label}</div>
+                          <div className="db-plan-count">{plan.count} purchase{plan.count !== 1 ? 's' : ''}</div>
+                        </div>
+                        <div className="db-plan-revenue">{formatPKR(plan.revenue)}</div>
+                      </div>
+                      <div className="db-plan-bar-track">
+                        <div className="db-plan-bar-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="db-empty">No plans sold this month.</div>
+            )}
+          </div>
+
         </div>
       </div>
 
     </div>
   );
 }
-

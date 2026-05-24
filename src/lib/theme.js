@@ -159,7 +159,7 @@ export const THEME_PRESETS = [
   }),
 ];
 
-const DEFAULT_THEME_ID = THEME_PRESETS[0].id;
+const DEFAULT_THEME_ID = 'amber-gold';
 
 function getThemeById(themeId) {
   return THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];

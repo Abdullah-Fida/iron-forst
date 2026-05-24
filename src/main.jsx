@@ -67,6 +67,8 @@ async function purgeAllCaches() {
   }
 
   // ── Normal app boot ──
+  localStorage.removeItem('core_ui_mode');
+  localStorage.removeItem('core_ui_theme');
   initTheme()
 
   createRoot(document.getElementById('root')).render(
