@@ -49,7 +49,7 @@ import StaffListPage from './features/staff/StaffListPage';
 import AddStaffPage from './features/staff/AddStaffPage';
 import EditStaffPage from './features/staff/EditStaffPage';
 import StaffDetailPage from './features/staff/StaffDetailPage';
-import NotificationsPage from './features/notifications/NotificationsPage';
+import ActionCenterPage from './features/collections/ActionCenterPage';
 import SettingsPage from './features/settings/SettingsPage';
 import AttendancePage from './features/attendance/AttendancePage';
 import AttendanceScanner from './features/attendance/AttendanceScanner';
@@ -99,7 +99,7 @@ function AppRoutes() {
         <Route path="members/:id/edit" element={<EditMemberPage />} />
         <Route path="payments" element={<PaymentsListPage />} />
         <Route path="payments/add" element={<AddPaymentPage />} />
-        <Route path="payments/pending" element={<PendingFeesPage />} />
+        <Route path="payments/pending" element={<Navigate to="/action-center" replace />} />
         <Route path="payments/revenue" element={<RevenuePage />} />
         <Route path="expenses" element={<ExpensesListPage />} />
         <Route path="expenses/add" element={<AddExpensePage />} />
@@ -109,7 +109,8 @@ function AppRoutes() {
         <Route path="staff/add" element={<AddStaffPage />} />
         <Route path="staff/:id" element={<StaffDetailPage />} />
         <Route path="staff/:id/edit" element={<EditStaffPage />} />
-        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="action-center" element={<ActionCenterPage />} />
+        <Route path="notifications" element={<Navigate to="/action-center" replace />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="attendance/scanner" element={<AttendanceScanner />} />

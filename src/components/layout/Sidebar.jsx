@@ -16,26 +16,33 @@ export default function Sidebar() {
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
     const fetchCount = async () => {
       try {
-        const res = await api.get('/members');
-        const localMembers = res.data.data || [];
-        const now = new Date();
-        let count = 0;
+        const [pendingRes, notifRes] = await Promise.all([
+          api.get('/payments/pending'),
+          api.get('/notifications', { params: { status: 'pending' } })
+        ]);
+        if (!isMounted) return;
         
-        localMembers.forEach(m => {
-          if (!m.latest_expiry || m.status === 'inactive' || m.status === 'deleted') return;
-          const expiryDate = new Date(m.latest_expiry);
-          const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-          if (daysLeft <= 3) count++;
-        });
-        setPendingCount(count);
+        const members = pendingRes.data.data || [];
+        const notifs = notifRes.data.data || [];
+        const staffNotifs = notifs.filter(n => n.notification_type && !n.notification_type.includes('member'));
+        
+        setPendingCount(members.length + staffNotifs.length);
       } catch (err) {
-        console.error('Failed to calculate notification count', err);
+        console.error('Failed to calculate action center count', err);
       }
     };
+    
     fetchCount();
-  }, []);
+    
+    window.addEventListener('action-center-updated', fetchCount);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('action-center-updated', fetchCount);
+    };
+  }, [location.pathname]);
 
   const menuGroups = [
     {
@@ -44,14 +51,13 @@ export default function Sidebar() {
         { path: '/dashboard', icon: Home, label: 'Dashboard' },
         { path: '/members', icon: Users, label: 'Members' },
         { path: '/attendance', icon: Fingerprint, label: 'Gate & Attendance' },
-        { path: '/notifications', icon: Bell, label: 'Alerts', badge: pendingCount },
+        { path: '/action-center', icon: Bell, label: 'Action Center', badge: pendingCount },
       ]
     },
     {
       title: 'Finance',
       items: [
         { path: '/payments', icon: DollarSign, label: 'Payments', end: true, extraActivePaths: ['/payments/add'] },
-        { path: '/payments/pending', icon: CreditCard, label: 'Unpaid Fees' },
         { path: '/payments/revenue', icon: BarChart2, label: 'Revenue' },
         { path: '/expenses', icon: Receipt, label: 'Expenses', end: true, extraActivePaths: ['/expenses/add', '/expenses/:id/edit'] },
         { path: '/expenses/summary', icon: TrendingUp, label: 'Profit / Loss' },

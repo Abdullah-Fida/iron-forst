@@ -43,9 +43,9 @@ export default function BottomNav({ onMoreClick }) {
         <Users size={22} />
         <span>Members</span>
       </NavLink>
-      <NavLink to="/payments/pending" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-        <CreditCard size={22} />
-        <span>Unpaid</span>
+      <NavLink to="/action-center" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+        <AlertTriangle size={22} />
+        <span>Action Center</span>
       </NavLink>
       <button className="bottom-nav-item" onClick={onMoreClick}>
         <LayoutGrid size={22} />

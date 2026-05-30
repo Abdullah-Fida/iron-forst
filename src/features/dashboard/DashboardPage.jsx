@@ -383,7 +383,7 @@ export default function DashboardPage() {
           return (
             <div className="db-kpi-card kpi-red">
               <div className="db-kpi-top">
-                <div className="db-kpi-label">Expiring Today</div>
+                <div className="db-kpi-label">Last Day</div>
                 <input type="date" className="db-mini-date" value={membersExpiringDate} onChange={e => setMembersExpiringDate(e.target.value)} />
               </div>
               <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersExpiring}</div>
@@ -397,6 +397,18 @@ export default function DashboardPage() {
             </div>
           );
         })()}
+
+        {/* Expiring in 3 Days */}
+        <div className="db-kpi-card" style={{ borderTop: '4px solid #fbbf24' }}>
+          <div className="db-kpi-top">
+            <div className="db-kpi-label">Expiring in 3 Days</div>
+          </div>
+          <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.dueSoonCount}</div>
+          <div className="db-kpi-diff diff-warning">
+            <Clock size={12}/> Needs attention
+          </div>
+          <div className="db-kpi-bg-icon"><Clock size={64}/></div>
+        </div>
 
       </div>
 
