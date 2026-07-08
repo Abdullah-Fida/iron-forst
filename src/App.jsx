@@ -27,7 +27,6 @@ class ErrorBoundary extends Component {
 }
 
 import GymLayout from './components/layout/GymLayout';
-import AdminLayout from './components/layout/AdminLayout';
 import LoginPage from './features/auth/LoginPage';
 import ForgotPasswordPage from './features/auth/ForgotPasswordPage';
 import ResetPasswordPage from './features/auth/ResetPasswordPage';
@@ -53,32 +52,18 @@ import ActionCenterPage from './features/collections/ActionCenterPage';
 import SettingsPage from './features/settings/SettingsPage';
 import AttendancePage from './features/attendance/AttendancePage';
 import AttendanceScanner from './features/attendance/AttendanceScanner';
-import AdminDashboardPage from './features/admin/AdminDashboardPage';
-import AdminGymsPage from './features/admin/AdminGymsPage';
-import AdminGymDetailPage from './features/admin/AdminGymDetailPage';
-import AdminPaymentsPage from './features/admin/AdminPaymentsPage';
-import AdminAlertsPage from './features/admin/AdminAlertsPage';
-import AdminSubscriptionsPage from './features/admin/AdminSubscriptionsPage';
 
-// Protected Route Components
-function GymRoute({ children }) {
-  const { isAuthenticated, isGymOwner } = useAuth();
+// Protected Route — requires authentication
+function ProtectedRoute({ children }) {
+  const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!isGymOwner) return <Navigate to="/admin/dashboard" replace />;
-  return children;
-}
-
-function AdminRoute({ children }) {
-  const { isAuthenticated, isAdmin } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
 function PublicRoute({ children }) {
-  const { isAuthenticated, isAdmin } = useAuth();
+  const { isAuthenticated } = useAuth();
   if (isAuthenticated) {
-    return <Navigate to={isAdmin ? '/admin/dashboard' : '/dashboard'} replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -89,7 +74,7 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route path="/" element={<GymRoute><GymLayout /></GymRoute>}>
+      <Route path="/" element={<ProtectedRoute><GymLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="members" element={<MembersListPage />} />
@@ -114,15 +99,6 @@ function AppRoutes() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="attendance/scanner" element={<AttendanceScanner />} />
-      </Route>
-      <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="dashboard" element={<AdminDashboardPage />} />
-        <Route path="gyms" element={<AdminGymsPage />} />
-        <Route path="gyms/:id" element={<AdminGymDetailPage />} />
-        <Route path="payments" element={<AdminPaymentsPage />} />
-        <Route path="alerts" element={<AdminAlertsPage />} />
-        <Route path="subscriptions" element={<AdminSubscriptionsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

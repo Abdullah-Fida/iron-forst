@@ -70,7 +70,7 @@ export default function GymLayout() {
         <header className="gym-header">
           <div className="gym-header-logo" onClick={() => navigate('/')}>
             <div className="logo-icon">{user?.gym_name ? user.gym_name.substring(0, 2).toUpperCase() : 'CG'}</div>
-            <h1 style={{fontSize: '20px', letterSpacing: '-0.5px'}}>{user?.gym_name || 'CORE GYM'}</h1>
+            <h1 style={{fontSize: '20px', letterSpacing: '-0.5px'}}>{user?.gym_name || 'IRON FOST'}</h1>
           </div>
 
           <div className="gym-header-actions">

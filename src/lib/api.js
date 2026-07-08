@@ -58,10 +58,7 @@ api.interceptors.response.use(
         errConfig.url.includes('/auth/change-password');
 
       if (!isAuthPath) {
-        if (status === 403 && data?.isSuspended) {
-          localStorage.removeItem('core_gym_user');
-          window.location.href = '/login?suspended=1';
-        } else if (status === 401) {
+        if (status === 401) {
           localStorage.removeItem('core_gym_user');
           window.location.href = '/login?expired=1';
         }

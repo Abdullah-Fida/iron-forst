@@ -131,7 +131,7 @@ export default function MemberDetailPage() {
   };
 
   const printReceipt = (p) => {
-    const gymName = (gym?.gym_name || gym?.name) || user?.gym_name || 'CORE GYM';
+    const gymName = (gym?.gym_name || gym?.name) || user?.gym_name || 'IRON FOST';
     printThermalReceipt({
       gymName,
       invoiceId: p.id,

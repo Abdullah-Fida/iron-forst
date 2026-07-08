@@ -206,7 +206,7 @@ export default function AddPaymentPage() {
         return rest ? `${base} — ${rest}` : (base || 'Membership Fee');
       };
 
-      const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : (user?.gym_name || 'CORE GYM');
+      const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : (user?.gym_name || 'IRON FOST');
       const cleanNotes = r.notes ? String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/g, '').trim() : '';
 
       printThermalReceipt({

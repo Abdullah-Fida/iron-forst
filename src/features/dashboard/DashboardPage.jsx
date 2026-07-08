@@ -433,10 +433,10 @@ export default function DashboardPage() {
         </div>
         <div className="db-strip-divider" />
         <div className="db-monthly-card">
-          <div className="db-monthly-icon icon-purple"><Users size={16}/></div>
+          <div className="db-monthly-icon" style={{ color: 'var(--status-active)', background: 'var(--status-active-bg)' }}><DollarSign size={16}/></div>
           <div>
-            <div className="db-monthly-label">Active Members</div>
-            <div className="db-monthly-value text-purple">{stats.activeMembers} <span className="db-monthly-of">/ {stats.totalMembers}</span></div>
+            <div className="db-monthly-label">Net Profit</div>
+            <div className="db-monthly-value" style={{ color: 'var(--status-active)' }}>{formatPKR(stats.profit)}</div>
           </div>
         </div>
       </div>
@@ -616,6 +616,10 @@ export default function DashboardPage() {
             <div className="db-fin-row">
               <span className="db-fin-label">Total Expenses</span>
               <span className="db-fin-val text-red">{formatPKR(stats.expenses)}</span>
+            </div>
+            <div className="db-fin-row" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border-color)' }}>
+              <span className="db-fin-label" style={{ fontWeight: 800 }}>Net Profit</span>
+              <span className="db-fin-val" style={{ color: 'var(--status-active)', fontWeight: 800 }}>{formatPKR(stats.profit)}</span>
             </div>
           </div>
 

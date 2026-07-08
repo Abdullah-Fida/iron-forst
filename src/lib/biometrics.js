@@ -1,5 +1,5 @@
 /**
- * Core Gym — Biometrics / WebAuthn Service
+ * Iron Fost — Biometrics / WebAuthn Service
  * Handles fingerprint registration and identification via browser WebAuthn API.
  */
 
@@ -48,7 +48,7 @@ export async function registerFingerprint(member) {
   const publicKeyCredentialCreationOptions = {
     challenge,
     rp: {
-      name: "Core Gym SaaS",
+      name: "Iron Fost SaaS",
       id: window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname,
     },
     user: {

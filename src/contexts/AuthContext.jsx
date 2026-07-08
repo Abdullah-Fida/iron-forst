@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 import api from '../lib/api';
 
 
@@ -22,11 +22,10 @@ export function AuthProvider({ children }) {
           if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
         }
 
-
         const gymUser = {
           email,
-          role: data.role,
-          name: data.role === 'admin' ? 'Super Admin' : data.gym.owner_name,
+          role: 'gym_owner',
+          name: data.gym.owner_name,
           gym_id: data.gym?.id,
           gym_name: data.gym?.gym_name,
           token: data.token
@@ -34,9 +33,7 @@ export function AuthProvider({ children }) {
         localStorage.setItem('core_gym_user', JSON.stringify(gymUser));
         setUser(gymUser);
 
-
-
-        return { success: true, role: data.role };
+        return { success: true };
       }
       return { success: false, error: 'Login failed' };
     } catch (err) {
@@ -45,28 +42,6 @@ export function AuthProvider({ children }) {
       }
       return { success: false, error: 'Network error or backend is not running.' };
     }
-  }, []);
-
-  const switchSession = useCallback(async (data) => {
-
-    const keysToKeep = ['core_gym_theme'];
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i);
-      if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
-    }
-
-
-    const gymUser = {
-      email: data.gym.email,
-      role: data.role,
-      name: data.gym.owner_name,
-      gym_id: data.gym.id,
-      token: data.token
-    };
-    localStorage.setItem('core_gym_user', JSON.stringify(gymUser));
-    setUser(gymUser);
-
-
   }, []);
 
 
@@ -81,37 +56,8 @@ export function AuthProvider({ children }) {
 
   }, []);
 
-
-
-  // Active session polling for suspension check
-  useEffect(() => {
-    if (!user || user.role !== 'gym_owner') return;
-
-    const interval = setInterval(async () => {
-      try {
-        await api.get('/auth/verify');
-      } catch (err) {
-        // Global interceptor handles the logout automatically
-      }
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(interval);
-  }, [user]);
-
-  // ── Session Verification: Check suspension on mount/refresh ──
-  useEffect(() => {
-    if (user && user.role === 'gym_owner' && navigator.onLine) {
-      api.get('/auth/verify').catch(() => {
-        // Interceptor handles logout if suspended
-      });
-    }
-  }, []);
-
-  const isAdmin = user?.role === 'admin';
-  const isGymOwner = user?.role === 'gym_owner';
-
   return (
-    <AuthContext.Provider value={{ user, login, logout, switchSession, isAdmin, isGymOwner, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );
@@ -122,3 +68,4 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+

@@ -1,5 +1,5 @@
 /**
- * Core Gym — Thermal Printer Utility
+ * Iron Fost — Thermal Printer Utility
  * 
  * Builds receipt HTML optimized for 58mm / 80mm thermal printers
  * and prints directly via a hidden iframe (no save dialog).
@@ -124,15 +124,15 @@ export function buildReceiptHTML(data) {
   }
 
   let finalGymName = data.gymName;
-  if (!finalGymName || finalGymName === 'GYM' || finalGymName === 'CORE GYM') {
+  if (!finalGymName || finalGymName === 'GYM' || finalGymName === 'IRON FOST') {
     try {
       const cachedRaw = localStorage.getItem('core_gym_settings');
       const userRaw = localStorage.getItem('core_gym_user');
       const settings = cachedRaw ? JSON.parse(cachedRaw) : {};
       const userObj = userRaw ? JSON.parse(userRaw) : {};
-      finalGymName = settings.gym_name || userObj.gym_name || 'CORE GYM';
+      finalGymName = settings.gym_name || userObj.gym_name || 'IRON FOST';
     } catch (e) {
-      finalGymName = 'CORE GYM';
+      finalGymName = 'IRON FOST';
     }
   }
 
@@ -195,7 +195,7 @@ export function buildTestPageHTML() {
 <body>
   <div class="receipt">
     <div class="double-line"></div>
-    <div class="center header">CORE GYM</div>
+    <div class="center header">IRON FOST</div>
     <div class="center sub-header">Printer Test Page</div>
     <div class="double-line"></div>
     <div class="row"><span class="label">Status</span><span class="value">OK ✓</span></div>

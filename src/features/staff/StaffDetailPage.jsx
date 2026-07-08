@@ -106,7 +106,7 @@ export default function StaffDetailPage() {
         month, year,
         paidDate: payForm.paid_date,
         paymentMethod: payForm.payment_method,
-        gymName: user?.gym_name || 'CORE GYM',
+        gymName: user?.gym_name || 'IRON FOST',
       });
       
       // Refresh from API
@@ -138,7 +138,7 @@ export default function StaffDetailPage() {
 
   const printSalaryReceipt = (data) => {
     printThermalReceipt({
-      gymName: user?.gym_name || 'CORE GYM',
+      gymName: user?.gym_name || 'IRON FOST',
       invoiceId: data.id,
       memberName: data.staffName,
       memberPhone: data.staffPhone,
@@ -230,7 +230,7 @@ export default function StaffDetailPage() {
                       month: sp.month, year: sp.year,
                       paidDate: sp.paid_date,
                       paymentMethod: sp.payment_method,
-                      gymName: user?.gym_name || 'CORE GYM',
+                      gymName: user?.gym_name || 'IRON FOST',
                     });
                   }}
                 >

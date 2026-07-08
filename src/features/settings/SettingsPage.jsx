@@ -275,7 +275,7 @@ export default function SettingsPage() {
       </button>
 
       <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, marginTop: 'var(--space-lg)' }}>
-        Core Gym v1.0 — Made for Pakistan 🇵🇰
+        Iron Fost v1.0 — Made for Pakistan 🇵🇰
       </p>
     </div>
   );

@@ -15,14 +15,14 @@
   --bg-glass-hover: rgba(22, 34, 43, 0.92);
 
   /* ── Brand ───────────────────────────── */
-  --accent-primary: #38bdf8;
-  --accent-primary-hover: #22a9e5;
-  --accent-secondary: #67e8f9;
-  --accent-gradient: #38bdf8;
-  --accent-gradient-hover: #22a9e5;
-  --accent-glow: 0 10px 22px rgba(56, 189, 248, 0.24);
-  --accent-light: #112736;
-  --accent-border: #21455d;
+  --accent-primary: #ea580c;
+  --accent-primary-hover: #c2410c;
+  --accent-secondary: #f97316;
+  --accent-gradient: #ea580c;
+  --accent-gradient-hover: #c2410c;
+  --accent-glow: 0 10px 22px rgba(234, 88, 12, 0.24);
+  --accent-light: #2c1608;
+  --accent-border: #5a2608;
 
   /* ── Status Colors ───────────────────── */
   --status-active: #34d399;
@@ -51,9 +51,9 @@
   --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.44);
   --shadow-lg: 0 24px 44px rgba(0, 0, 0, 0.52);
   --shadow-2xl: 0 38px 70px rgba(0, 0, 0, 0.64);
-  --shadow-indigo: 0 16px 30px rgba(56, 189, 248, 0.2);
-  --shadow-orange: 0 16px 28px rgba(56, 189, 248, 0.18);
-  --shadow-neon: 0 0 24px rgba(56, 189, 248, 0.3);
+  --shadow-indigo: 0 16px 30px rgba(234, 88, 12, 0.2);
+  --shadow-orange: 0 16px 28px rgba(234, 88, 12, 0.18);
+  --shadow-neon: 0 0 24px rgba(234, 88, 12, 0.3);
 
   /* ── Radius ──────────────────────────── */
   --radius-sm: 8px;
@@ -124,8 +124,8 @@
   --text-inverse: #ffffff;
   --border-color: #e3ddd2;
   --border-color-hover: #d2cabd;
-  --accent-light: #edf4ff;
-  --accent-border: #c7d8f5;
+  --accent-light: #ffedd5;
+  --accent-border: #fed7aa;
   --status-active-bg: #ecfdf5;
   --status-warning-bg: #fffbeb;
   --status-danger-bg: #fef2f2;

@@ -15,10 +15,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('suspended') === '1') {
-      setError('Your gym access has been suspended by the admin. Please contact support at 03069005213.');
-      window.history.replaceState(null, '', '/login');
-    } else if (params.get('expired') === '1') {
+    if (params.get('expired') === '1') {
       setError('Your session has expired. Please log in again.');
       window.history.replaceState(null, '', '/login');
     }
@@ -32,8 +29,7 @@ export default function LoginPage() {
 
     const result = await login(email, password);
     if (result.success) {
-      if (result.role === 'admin') navigate('/admin/dashboard');
-      else navigate('/dashboard');
+      navigate('/dashboard');
     } else {
       setError(result.error);
     }
@@ -54,7 +50,7 @@ export default function LoginPage() {
           <div className="welcome-content">
             <div className="welcome-logo">
               <div className="logo-box">CG</div>
-              <span>Core Gym</span>
+              <span>Iron Fost</span>
             </div>
             <h1 className="welcome-title">Elevate Your Fitness Business.</h1>
             <p className="welcome-subtitle">

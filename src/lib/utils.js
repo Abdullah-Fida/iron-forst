@@ -1,4 +1,4 @@
-// Core Gym — Utility Functions
+// Iron Fost — Utility Functions
 
 export function formatPKR(amount) {
   return `PKR ${Number(amount || 0).toLocaleString('en-PK')}`;

@@ -35,6 +35,7 @@ export default function EditMemberPage() {
              return { 
                name: m.name, 
                phone: m.phone, 
+               gender: m.gender || 'male',
                join_date: m.join_date, 
                emergency_contact: m.emergency_contact || '', 
                notes: m.notes || '' 
@@ -90,6 +91,13 @@ export default function EditMemberPage() {
       <form onSubmit={handleSubmit}>
         <div className="form-group"><label className="form-label">Full Name *</label><input className="form-input" value={form.name || ''} onChange={e => set('name', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Phone Number *</label><input className="form-input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} /></div>
+        <div className="form-group">
+          <label className="form-label">Gender</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
+            <button type="button" className={`btn ${form.gender === 'male' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => set('gender', 'male')}>Male 👨</button>
+            <button type="button" className={`btn ${form.gender === 'female' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => set('gender', 'female')}>Female 👩</button>
+          </div>
+        </div>
         <div className="form-group"><label className="form-label">Join Date</label><input className="form-input" type="date" value={form.join_date || ''} onChange={e => set('join_date', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Emergency Contact</label><input className="form-input" value={form.emergency_contact || ''} onChange={e => set('emergency_contact', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" value={form.notes || ''} onChange={e => set('notes', e.target.value)} /></div>

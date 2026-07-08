@@ -17,6 +17,7 @@ export default function MembersListPage() {
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
+  const [genderFilter, setGenderFilter] = useState(searchParams.get('gender') || 'all');
   const [sort, setSort] = useState('name');
   const [errorDetail, setErrorDetail] = useState(null);
   
@@ -63,6 +64,10 @@ export default function MembersListPage() {
     
     if (statusFilter !== 'all') {
       results = results.filter(m => m.status === statusFilter);
+    }
+    
+    if (genderFilter !== 'all') {
+      results = results.filter(m => m.gender === genderFilter);
     }
     
     if (sort === 'name') {
@@ -165,12 +170,18 @@ export default function MembersListPage() {
         ))}
       </div>
 
-      {/* Sort */}
+      {/* Sort & Gender */}
       <div style={{ marginBottom: 'var(--space-md)', display: 'flex', gap: 'var(--space-sm)' }}>
-        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)' }} value={sort} onChange={e => setSort(e.target.value)}>
+        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1 }} value={sort} onChange={e => setSort(e.target.value)}>
           <option value="name">A → Z</option>
           <option value="join_date">Newest First</option>
           <option value="overdue">Most Overdue</option>
+        </select>
+
+        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1 }} value={genderFilter} onChange={e => setGenderFilter(e.target.value)}>
+          <option value="all">All Genders</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
         </select>
       </div>
 
@@ -211,7 +222,9 @@ export default function MembersListPage() {
                   {getInitials(member.name || '??')}
                 </div>
                 <div className="member-info">
-                  <div className="member-name">{member.name}</div>
+                  <div className="member-name">
+                    {member.name} {member.gender === 'female' ? '👩' : member.gender === 'male' ? '👨' : ''}
+                  </div>
                   <div className="member-phone">{member.phone}</div>
                   {member.status === 'trial' && (
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Trial Mode</div>

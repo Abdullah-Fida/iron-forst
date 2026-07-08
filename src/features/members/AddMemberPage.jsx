@@ -25,6 +25,7 @@ export default function AddMemberPage() {
     memberForm: {
       name: '',
       phone: '',
+      gender: 'male',
       join_date: todayStr(),
       emergency_contact: '',
       notes: '',
@@ -360,6 +361,14 @@ export default function AddMemberPage() {
                 value={memberForm.phone || ''}
                 onChange={e => setMember('phone', e.target.value)}
               />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Gender</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
+                <button type="button" className={`btn ${memberForm.gender === 'male' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('gender', 'male')}>Male 👨</button>
+                <button type="button" className={`btn ${memberForm.gender === 'female' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('gender', 'female')}>Female 👩</button>
+              </div>
             </div>
 
             <div className="form-group">

@@ -1,6 +1,4 @@
-// Core Gym — Constants & Enums
-
-export const ADMIN_EMAIL = 'wahabwaqas345@gmail.com';
+// Iron Fost — Constants & Enums
 
 export const MEMBER_STATUS = {
   ACTIVE: 'active',

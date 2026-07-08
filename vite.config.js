@@ -13,7 +13,7 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'Core Gym MVP',
+        name: 'Iron Fost MVP',
         short_name: 'CoreGym',
         description: 'Elite Gym Management System',
         theme_color: '#0a0a0b',
