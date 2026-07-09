@@ -21,6 +21,14 @@
       "dest": "backend/server.js"
     },
     {
+      "src": "/iclock/(.*)",
+      "dest": "backend/server.js"
+    },
+    {
+      "src": "/adms",
+      "dest": "backend/server.js"
+    },
+    {
       "handle": "filesystem"
     },
     {
