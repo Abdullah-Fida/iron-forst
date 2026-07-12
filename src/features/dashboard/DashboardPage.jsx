@@ -279,7 +279,7 @@ export default function DashboardPage() {
     datasets: [{
       data: [activeCount, dueSoonCount, expiredCount, noPayment],
       backgroundColor: [C_GREEN, C_AMBER, C_RED, '#243447'],
-      borderColor: [C_DARK], borderWidth: 3,
+      borderColor: ['#0b1116'], borderWidth: 3,
       hoverOffset: 8,
     }]
   };
