@@ -28,6 +28,7 @@ export default function AddMemberPage() {
       gender: 'male',
       join_date: todayStr(),
       emergency_contact: '',
+      fingerprint_id: '',
       notes: '',
     },
     payForm: {
@@ -388,6 +389,17 @@ export default function AddMemberPage() {
                 placeholder="Contact name & phone (optional)"
                 value={memberForm.emergency_contact || ''}
                 onChange={e => setMember('emergency_contact', e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Device PIN (Optional)</label>
+              <input
+                className="form-input"
+                type="number"
+                placeholder="PIN from Fingerprint Device"
+                value={memberForm.fingerprint_id || ''}
+                onChange={e => setMember('fingerprint_id', e.target.value)}
               />
             </div>
 

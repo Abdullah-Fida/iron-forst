@@ -64,11 +64,12 @@ export default function DashboardPage() {
     const fetchDashboard = async () => {
       setLoading(true);
       try {
-        const [membersRes, paymentsRes, expensesRes, staffRes] = await Promise.all([
+        const [membersRes, paymentsRes, expensesRes, staffRes, attendanceRes] = await Promise.all([
           api.get('/members'),
           api.get('/payments'),
           api.get('/expenses'),
-          api.get('/staff')
+          api.get('/staff'),
+          api.get('/attendance/report', { params: { month: new Date().getMonth() + 1, year: new Date().getFullYear() } })
         ]);
         if (!isMounted) return;
 
@@ -76,6 +77,15 @@ export default function DashboardPage() {
         const allPayments = paymentsRes.data.data  || [];
         const allExpenses = expensesRes.data.data  || [];
         const staffData   = staffRes.data.data     || [];
+        
+        const byMember = attendanceRes.data.byMember || {};
+        const topRegulars = Object.entries(byMember)
+          .map(([id, count]) => {
+            const member = allMembers.find(m => m.id === id);
+            return { id, name: member ? member.name : 'Unknown', count };
+          })
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5);
 
         const allStaffPayments = [];
         staffData.forEach(s => {
@@ -189,7 +199,7 @@ export default function DashboardPage() {
             currCash, prevCash, currMembersAdded, prevMembersAdded,
             currMembersExpiring, prevMembersExpiring
           },
-          popularPlans, recentActivity, revenueTrend: trend
+          popularPlans, recentActivity, revenueTrend: trend, topRegulars
         });
         setLoading(false);
       } catch (err) {
@@ -214,6 +224,7 @@ export default function DashboardPage() {
   const revenueTrend   = dashboardData?.revenueTrend   || [];
   const recentActivity = dashboardData?.recentActivity || [];
   const popularPlans   = dashboardData?.popularPlans   || [];
+  const topRegulars    = dashboardData?.topRegulars    || [];
 
   const revenueData = revenueTrend.map(d => d.revenue);
   const expenseData = revenueTrend.map(d => d.expenses);
@@ -650,8 +661,38 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
+            )}
+          </div>
+
+          {/* ─ Most Regular Members ─ */}
+          <div className="db-section-label" style={{ marginTop: 8 }}>
+            <Activity size={14} />
+            Most Regular Members
+          </div>
+          <div className="db-panel">
+            {topRegulars.length > 0 ? (
+              <div className="db-plans-list">
+                {topRegulars.map((regular, idx) => {
+                  const maxCount = topRegulars[0].count;
+                  const pct = maxCount > 0 ? (regular.count / maxCount) * 100 : 0;
+                  return (
+                    <div key={idx} className="db-plan-item" onClick={() => navigate(`/members/${regular.id}`)} style={{ cursor: 'pointer' }}>
+                      <div className="db-plan-header">
+                        <div>
+                          <div className="db-plan-label">{regular.name}</div>
+                          <div className="db-plan-count">This Month</div>
+                        </div>
+                        <div className="db-plan-revenue" style={{ fontSize: '14px' }}>{regular.count} visits</div>
+                      </div>
+                      <div className="db-plan-bar-track">
+                        <div className="db-plan-bar-fill" style={{ width: `${pct}%`, background: 'var(--accent-primary)' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <div className="db-empty">No plans sold this month.</div>
+              <div className="db-empty">No attendance tracked yet.</div>
             )}
           </div>
 

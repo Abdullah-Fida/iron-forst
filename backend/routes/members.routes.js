@@ -13,6 +13,7 @@ const memberSchema = z.object({
   gender: z.enum(['male', 'female']).optional(),
   join_date: z.string().optional(),
   emergency_contact: z.string().optional(),
+  fingerprint_id: z.string().optional(),
   notes: z.string().optional(),
 });
 

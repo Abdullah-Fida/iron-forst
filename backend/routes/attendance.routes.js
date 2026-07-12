@@ -369,8 +369,12 @@ router.get('/report', async (req, res) => {
 
   // Group by date
   const byDate = {};
-  data.forEach(a => { byDate[a.date] = (byDate[a.date] || 0) + 1; });
-  res.json({ success: true, data: byDate, total: data.length });
+  const byMember = {};
+  data.forEach(a => { 
+    byDate[a.date] = (byDate[a.date] || 0) + 1; 
+    byMember[a.member_id] = (byMember[a.member_id] || 0) + 1;
+  });
+  res.json({ success: true, data: byDate, byMember, total: data.length });
 });
 
 // ── POST /api/attendance/staff ────────────

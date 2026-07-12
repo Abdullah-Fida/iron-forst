@@ -11,10 +11,11 @@ import {
   Calendar,
   ShieldAlert,
   ReceiptText,
-  Fingerprint
+  Fingerprint,
+  Check,
+  X
 } from 'lucide-react';
 import api from '../../lib/api';
-import { registerFingerprint } from '../../lib/biometrics';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getInitials,
@@ -44,6 +45,9 @@ export default function MemberDetailPage() {
   const [loading, setLoading] = useState(true);
   const [editMessage, setEditMessage] = useState('');
   const [showWaModal, setShowWaModal] = useState(false);
+  const [editingPin, setEditingPin] = useState(false);
+  const [tempPin, setTempPin] = useState('');
+  const [attendanceCount, setAttendanceCount] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -65,6 +69,13 @@ export default function MemberDetailPage() {
           const cached = localStorage.getItem('core_gym_settings');
           if (cached) setGym(JSON.parse(cached));
         }
+
+        try {
+          const dt = new Date();
+          const attRes = await api.get(`/members/${id}/attendance`, { params: { month: dt.getMonth() + 1, year: dt.getFullYear() } });
+          setAttendanceCount(attRes.data.data?.length || 0);
+        } catch(e) {}
+
       } catch (err) {
         console.error(err);
         toast.error('Error loading profile');
@@ -116,17 +127,14 @@ export default function MemberDetailPage() {
     setShowWaModal(false);
   };
 
-  const handleRegisterFingerprint = async () => {
+  const handleSavePin = async () => {
     try {
-      toast.info('Please touch your fingerprint sensor...');
-      const credentialId = await registerFingerprint(member);
-
-      // Direct API Call
-      await api.put(`/members/${member.id}`, { fingerprint_id: credentialId });
-      setMember({ ...member, fingerprint_id: credentialId });
-      toast.success('Fingerprint registered successfully!');
+      await api.put(`/members/${member.id}`, { fingerprint_id: tempPin });
+      setMember({ ...member, fingerprint_id: tempPin });
+      setEditingPin(false);
+      toast.success('Device PIN updated successfully!');
     } catch (err) {
-      toast.error(err.message || 'Failed to register fingerprint');
+      toast.error(err.response?.data?.message || 'Failed to update PIN');
     }
   };
 
@@ -207,6 +215,10 @@ export default function MemberDetailPage() {
           <div className="stat-label">Transactions</div>
           <div className="stat-value">{payments.length} Records</div>
         </div>
+        <div className="stat-box">
+          <div className="stat-label">Visits this Month</div>
+          <div className="stat-value" style={{ color: 'var(--accent-primary)' }}>{attendanceCount} Days</div>
+        </div>
       </div>
 
       {/* Action Buttons */}
@@ -242,9 +254,9 @@ export default function MemberDetailPage() {
         </div>
       </div>
 
-      {/* Biometric Access Section */}
+      {/* Device PIN Section */}
       <div className="profile-biometric-section" style={{ marginTop: '32px' }}>
-        <h3 className="section-title">Security & Access</h3>
+        <h3 className="section-title">Hardware Access (Device PIN)</h3>
         <div className="card" style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <div style={{
@@ -254,15 +266,32 @@ export default function MemberDetailPage() {
               <Fingerprint size={24} />
             </div>
             <div>
-              <div style={{ fontWeight: '700', fontSize: '15px' }}>Fingerprint Login</div>
+              <div style={{ fontWeight: '700', fontSize: '15px' }}>Device PIN Mapping</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {member.fingerprint_id ? '✅ Identity Verified' : '❌ Not Registered'}
+                {member.fingerprint_id ? `PIN ID: ${member.fingerprint_id}` : 'Not mapped to device'}
               </div>
             </div>
           </div>
-          <button className={`btn ${member.fingerprint_id ? 'btn-secondary' : 'btn-primary'} btn-sm`} onClick={handleRegisterFingerprint}>
-            {member.fingerprint_id ? 'Register New' : 'Add Fingerprint'}
-          </button>
+          
+          {editingPin ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input 
+                type="number"
+                className="form-input" 
+                style={{ width: '100px', padding: '6px 12px' }}
+                placeholder="PIN"
+                value={tempPin}
+                autoFocus
+                onChange={e => setTempPin(e.target.value)}
+              />
+              <button className="btn btn-icon btn-primary" onClick={handleSavePin}><Check size={16} /></button>
+              <button className="btn btn-icon btn-secondary" onClick={() => setEditingPin(false)}><X size={16} /></button>
+            </div>
+          ) : (
+            <button className={`btn ${member.fingerprint_id ? 'btn-secondary' : 'btn-primary'} btn-sm`} onClick={() => { setTempPin(member.fingerprint_id || ''); setEditingPin(true); }}>
+              {member.fingerprint_id ? 'Edit PIN' : 'Assign PIN'}
+            </button>
+          )}
         </div>
       </div>
 
