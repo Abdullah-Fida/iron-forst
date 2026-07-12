@@ -2,10 +2,9 @@ const fingerprintService = require('../services/fingerprintService');
 const mqttService = require('../services/mqttService');
 
 /**
- * Parses ADMS plain text body for values like `PIN=15\tSN=123\t...`
- * Format varies depending on device settings.
+ * Parses ADMS plain text body for KEY=VALUE pairs (used by OPTIONS table etc.)
  */
-const parseAdmsText = (text) => {
+const parseAdmsKeyValue = (text) => {
   const result = {};
   const lines = text.split('\n');
   lines.forEach(line => {
@@ -21,74 +20,126 @@ const parseAdmsText = (text) => {
 };
 
 /**
+ * Parses ZKTeco ATTLOG (attendance log) rows.
+ * Format: PIN\tTIME\tSTATUS\tVERIFY\tWORK_CODE\tRESERVED...
+ * Each line is one attendance record. Multiple lines = multiple scans.
+ * Example: "1\t2026-07-12 19:32:47\t255\t1\t0\t0\t0\t0\t0\t0"
+ */
+const parseAttLog = (text) => {
+  const records = [];
+  const lines = text.trim().split('\n');
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    
+    const fields = trimmed.split('\t');
+    if (fields.length >= 2) {
+      records.push({
+        PIN: fields[0]?.trim(),
+        TIME: fields[1]?.trim(),
+        STATUS: fields[2]?.trim() || '0',
+        VERIFY: fields[3]?.trim() || '0',   // 1=fingerprint, 15=face
+      });
+    }
+  }
+  return records;
+};
+
+/**
  * Handle incoming POST requests from ZKTeco SenseFace M2F-LR
  */
 const handleAdmsEvent = async (req, res) => {
   try {
+    const table = req.query.table || '';
+    const deviceSerial = req.query.SN || process.env.DEVICE_NAME || 'SenseFace-M2F-LR';
+    
     console.log('\n📥 --- FINGERPRINT DEVICE REQUEST ---');
-    console.log(`Method: ${req.method}`);
-    console.log(`URL: ${req.originalUrl}`);
-    console.log('Query Params:', JSON.stringify(req.query, null, 2));
-    console.log('Raw Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Raw Body:', typeof req.body === 'string' ? req.body : JSON.stringify(req.body, null, 2));
+    console.log(`Method: ${req.method} | URL: ${req.originalUrl}`);
+    console.log(`Table: ${table} | Device: ${deviceSerial}`);
+
+    const rawBody = (typeof req.body === 'string' || Buffer.isBuffer(req.body)) 
+      ? req.body.toString() 
+      : JSON.stringify(req.body);
     
-    let payload = req.body;
-    
-    // ZKTeco sometimes sends data as raw text in the body or URL parameters.
-    // If it's plain text (iclock cdata style)
-    if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
-      payload = parseAdmsText(req.body.toString());
-      console.log('Parsed ADMS Text:', JSON.stringify(payload, null, 2));
-    } 
-    // Mix of query and body depending on standard vs custom push
-    const data = { ...req.query, ...payload };
-    console.log('Combined Extract Data:', JSON.stringify(data, null, 2));
+    console.log('Raw Body:', rawBody);
+
+    // ── ATTLOG: Attendance/scan events ──
+    if (table === 'ATTLOG') {
+      const records = parseAttLog(rawBody);
+      console.log(`📋 Parsed ${records.length} ATTLOG record(s):`, JSON.stringify(records, null, 2));
+
+      for (const record of records) {
+        const fingerprintId = record.PIN;
+        const scanTime = record.TIME || new Date().toISOString();
+        const verifyMode = record.VERIFY; // 1=fingerprint, 15=face
+
+        if (!fingerprintId) {
+          console.log('⚠️ Skipping record with no PIN');
+          continue;
+        }
+
+        console.log(`\n🔍 Processing scan: PIN=${fingerprintId}, TIME=${scanTime}, VERIFY=${verifyMode}`);
+
+        // 1. Validate membership
+        const validation = await fingerprintService.validateMembership(fingerprintId);
+        console.log(`📌 Validation result: ${validation.status} (memberId: ${validation.memberId})`);
+
+        // 2. Mark attendance if member is valid
+        if (validation.isValid && validation.memberId) {
+          const attendance = await fingerprintService.markAttendance(
+            validation.memberId,
+            validation.gymId,
+            scanTime
+          );
+          if (attendance) {
+            console.log(`✅ Attendance marked for member ${validation.memberId} at ${scanTime}`);
+          }
+        }
+
+        // 3. Open door if valid (MQTT - optional)
+        if (validation.isValid) {
+          await mqttService.publishOpenDoor(
+            validation.memberId,
+            fingerprintId,
+            deviceSerial,
+            scanTime
+          );
+        }
+
+        // 4. Log access attempt
+        await fingerprintService.logAccess(
+          validation.memberId,
+          fingerprintId,
+          scanTime,
+          deviceSerial,
+          validation.status
+        );
+      }
+
+      console.log('-------------------------------------\n');
+      res.set('Content-Type', 'text/plain');
+      return res.send('OK');
+    }
+
+    // ── OPERLOG / OPTIONS / other tables: just log and acknowledge ──
+    if (table === 'OPERLOG' || table === 'options') {
+      console.log(`📝 ${table} data received (informational, no action needed)`);
+      console.log('-------------------------------------\n');
+      res.set('Content-Type', 'text/plain');
+      return res.send('OK');
+    }
+
+    // ── Unknown or heartbeat ──
+    console.log('💓 Heartbeat or unknown request — responding OK');
     console.log('-------------------------------------\n');
-
-    // Extract relevant fields
-    // Standard ZKTeco fields: PIN (User ID), SN (Device Serial), TIME, Verify_Mode, event type
-    const fingerprintId = data.PIN || data.userid || data.user_id;
-    const deviceSerial = data.SN || process.env.DEVICE_NAME || 'SenseFace-M2F-LR';
-    const time = data.TIME || data.time || new Date().toISOString();
-
-    if (!fingerprintId) {
-      // If heartbeat or unknown request, just return OK so device doesn't error out
-      return res.send('OK'); 
-    }
-
-    // 1. Check Membership
-    const validation = await fingerprintService.validateMembership(fingerprintId);
-    
-    // 2. Open Door if valid
-    if (validation.isValid) {
-      await mqttService.publishOpenDoor(
-        validation.memberId,
-        fingerprintId,
-        deviceSerial,
-        time
-      );
-    }
-
-    // 3. Log Access
-    await fingerprintService.logAccess(
-      validation.memberId,
-      fingerprintId,
-      time,
-      deviceSerial,
-      validation.status
-    );
-
-    // 4. Respond to Device
-    // Standard ZKTeco devices expect "OK" as plain text to clear their buffer.
     res.set('Content-Type', 'text/plain');
     return res.send('OK');
     
   } catch (error) {
     console.error('❌ ADMS Error:', error.message);
-    // Never crash, and usually better to return OK so device doesn't get stuck retrying
-    // unless you want it to retry, but returning 500 might cause log buildup on device.
     res.set('Content-Type', 'text/plain');
-    res.send('ERROR');
+    res.send('OK');
   }
 };
 
