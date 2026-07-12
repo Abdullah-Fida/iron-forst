@@ -29,5 +29,5 @@ dist-ssr
 .env.*.local
 
 # Backend folder (Ignored for frontend-only repo)
-backend/
+# backend/
 
