@@ -658,6 +658,8 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
+            ) : (
+              <div className="db-empty">No plans sold this month.</div>
             )}
           </div>
 
