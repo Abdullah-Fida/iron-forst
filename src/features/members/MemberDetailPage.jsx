@@ -9,7 +9,6 @@ import {
   Printer,
   Phone,
   Calendar,
-  ShieldAlert,
   ReceiptText,
   Fingerprint,
   Check,

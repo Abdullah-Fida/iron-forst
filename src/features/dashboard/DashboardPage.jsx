@@ -1,33 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
-  UserPlus, CreditCard, Activity, Clock, AlertCircle, CalendarDays,
-  TrendingDown, Zap, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  Minus, ChevronRight, Flame, Loader2
+  Users, DollarSign,
+  Activity, Clock, AlertCircle,
+  Flame
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
-  LineElement, PointElement, ArcElement, Tooltip, Legend,
+  ArcElement, Tooltip, Legend,
   Filler
 } from 'chart.js';
-import { Bar, Line, Doughnut } from 'react-chartjs-2';
+import { Bar, Doughnut } from 'react-chartjs-2';
 import { StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatPKR, formatDateShort, getMonthName, calculateMemberStatus } from '../../lib/utils';
+import { formatPKR, getMonthName, calculateMemberStatus } from '../../lib/utils';
 import api from '../../lib/api';
 import '../../styles/dashboard.css';
 import '../../styles/loading.css';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend, Filler);
 
 const C_TEAL  = '#38bdf8';
 const C_GREEN  = '#34d399';
 const C_RED    = '#f87171';
 const C_AMBER  = '#fbbf24';
-const C_PURPLE = '#a78bfa';
-const C_DARK   = '#0b1116';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
