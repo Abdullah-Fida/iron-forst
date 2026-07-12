@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Users, DollarSign, Activity, Clock, AlertCircle, Flame,
-  UserPlus, CreditCard, AlertTriangle, CalendarCheck,
-  ChevronRight, Loader2, ArrowUpRight, ArrowDownRight, Minus
+  Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
+  UserPlus, CreditCard, Activity, Clock, AlertCircle, CalendarDays,
+  TrendingDown, Zap, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
+  Minus, ChevronRight, Flame, Loader2
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
