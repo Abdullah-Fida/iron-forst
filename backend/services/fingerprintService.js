@@ -35,12 +35,31 @@ class FingerprintService {
 
       console.log(`👤 Member found: ${member.name} (ID: ${member.id})`);
 
-      // Check if membership is active and not expired
+      // Check if membership is active and not expired (with grace period)
       const isStatusActive = member.status === 'active';
-      const isNotExpired = member.latest_expiry && new Date(member.latest_expiry) >= new Date();
+
+      // Fetch the gym's grace period setting
+      let graceDays = 0;
+      try {
+        const { data: gym } = await supabase
+          .from('gyms')
+          .select('grace_period_days')
+          .eq('id', member.gym_id)
+          .maybeSingle();
+        graceDays = gym?.grace_period_days || 0;
+      } catch (e) {
+        // Column may not exist yet — default to 0
+      }
+
+      let isNotExpired = false;
+      if (member.latest_expiry) {
+        const expiryDate = new Date(member.latest_expiry);
+        expiryDate.setDate(expiryDate.getDate() + graceDays); // Add grace period
+        isNotExpired = expiryDate >= new Date();
+      }
 
       if (isStatusActive && isNotExpired) {
-        console.log(`✅ ${member.name} — Membership ACTIVE (expires: ${member.latest_expiry})`);
+        console.log(`✅ ${member.name} — Membership ACTIVE (expires: ${member.latest_expiry}, grace: +${graceDays}d)`);
         return { isValid: true, memberId: member.id, gymId: member.gym_id, status: 'GRANTED' };
       } else {
         const reason = !isStatusActive ? 'status is not active' : `expired on ${member.latest_expiry}`;

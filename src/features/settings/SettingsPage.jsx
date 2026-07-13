@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, LogOut, Loader2, Palette, CheckCircle2, Printer } from 'lucide-react';
+import { Save, LogOut, Loader2, Palette, CheckCircle2, Printer, Clock } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -64,6 +64,7 @@ export default function SettingsPage() {
               wa_msg_due_soon: g.wa_msg_due_soon || '',
               wa_msg_expired: g.wa_msg_expired || '',
               attendance_active: g.attendance_active ?? false,
+              grace_period_days: g.grace_period_days ?? 0,
             };
           });
         }
@@ -71,7 +72,7 @@ export default function SettingsPage() {
         console.error('Failed to fetch gym settings', err);
         setForm({
           gym_name: '', owner_name: '', phone: '', city: '', address: '', default_monthly_fee: '0',
-          wa_msg_active: '', wa_msg_due_soon: '', wa_msg_expired: '', attendance_active: false
+          wa_msg_active: '', wa_msg_due_soon: '', wa_msg_expired: '', attendance_active: false, grace_period_days: 0
         });
         toast.error('Running offline with no cached settings');
       } finally {
@@ -95,7 +96,7 @@ export default function SettingsPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const payload = { ...form, default_monthly_fee: Number(form.default_monthly_fee) };
+      const payload = { ...form, default_monthly_fee: Number(form.default_monthly_fee), grace_period_days: Number(form.grace_period_days) };
       localStorage.setItem('core_gym_settings', JSON.stringify(payload));
 
       try {
@@ -159,6 +160,24 @@ export default function SettingsPage() {
         <div className="form-group"><label className="form-label">City</label><input className="form-input" value={form.city} onChange={e => set('city', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Address</label><input className="form-input" value={form.address} onChange={e => set('address', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Default Monthly Fee (PKR)</label><input className="form-input" type="text" inputMode="numeric" value={form.default_monthly_fee} onChange={e => set('default_monthly_fee', e.target.value)} /></div>
+
+        <div className="form-group">
+          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Clock size={16} style={{ color: 'var(--accent-primary)' }} />
+            Grace Period (Days After Expiry)
+          </label>
+          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-xs)', marginBottom: '8px', marginTop: '-2px' }}>
+            Members can still enter for this many days after their fee expires. Set 0 to block immediately.
+          </p>
+          <input
+            className="form-input"
+            type="number"
+            min="0"
+            max="30"
+            value={form.grace_period_days}
+            onChange={e => set('grace_period_days', Math.max(0, Math.min(30, parseInt(e.target.value) || 0)))}
+          />
+        </div>
         <button type="submit" className="btn btn-primary btn-block" disabled={isSaving}>
           {isSaving ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Save Changes</>}
         </button>

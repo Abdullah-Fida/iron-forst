@@ -124,7 +124,7 @@ async function findMemberByFingerprint(gymId, fingerprintId) {
   return withFingerprint(found || null);
 }
 
-function evaluateMemberAccess(member, todayDate) {
+function evaluateMemberAccess(member, todayDate, graceDays = 0) {
   const expiry = normalizeDate(member.latest_expiry);
   const isTrial = member.status === 'trial';
 
@@ -139,13 +139,18 @@ function evaluateMemberAccess(member, todayDate) {
     };
   }
 
-  if (expiry < todayDate) {
+  // Apply grace period: add graceDays to expiry before comparing
+  const effectiveExpiry = new Date(expiry);
+  effectiveExpiry.setDate(effectiveExpiry.getDate() + graceDays);
+  const effectiveExpiryStr = effectiveExpiry.toISOString().split('T')[0];
+
+  if (effectiveExpiryStr < todayDate) {
     return {
       granted: false,
       reason: isTrial ? 'trial_finished' : 'fee_expired',
       message: isTrial
         ? `Trial expired on ${expiry}. Access denied.`
-        : `Membership expired on ${expiry}. Access denied.`,
+        : `Membership expired on ${expiry}. Grace period (+${graceDays}d) ended. Access denied.`,
       expiry,
     };
   }
@@ -218,7 +223,20 @@ router.post('/fingerprint/scan', async (req, res) => {
     });
   }
 
-  const access = evaluateMemberAccess(member, today);
+  // Fetch the gym's grace period
+  let graceDays = 0;
+  try {
+    const { data: gym } = await supabase
+      .from('gyms')
+      .select('grace_period_days')
+      .eq('id', req.user.gym_id)
+      .maybeSingle();
+    graceDays = gym?.grace_period_days || 0;
+  } catch (e) {
+    // Column may not exist yet
+  }
+
+  const access = evaluateMemberAccess(member, today, graceDays);
   if (!access.granted) {
     return res.status(200).json({
       success: true,
