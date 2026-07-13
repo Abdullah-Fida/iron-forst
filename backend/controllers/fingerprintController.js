@@ -71,7 +71,9 @@ const handleAdmsEvent = async (req, res) => {
 
       for (const record of records) {
         const fingerprintId = record.PIN;
-        const scanTime = record.TIME || new Date().toISOString();
+        const deviceTime = record.TIME; // Keep for debugging
+        // Always use the server's current time instead of the device time to avoid clock mismatch issues
+        const scanTime = new Date().toISOString(); 
         const verifyMode = record.VERIFY; // 1=fingerprint, 15=face
 
         if (!fingerprintId) {
