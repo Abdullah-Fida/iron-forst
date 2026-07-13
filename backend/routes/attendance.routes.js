@@ -397,4 +397,48 @@ router.get('/staff/today', async (req, res) => {
   res.json({ success: true, data });
 });
 
+// ── GET /api/attendance/access-logs ──────
+// Returns access_logs for the UI to show granted ✅ / denied ❌ history
+router.get('/access-logs', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const date = req.query.date || getTodayDate();
+
+  // Try to read from access_logs table
+  try {
+    const { data, error } = await supabase
+      .from('access_logs')
+      .select('id, member_id, fingerprint_id, timestamp, device, status')
+      .gte('timestamp', `${date}T00:00:00`)
+      .lte('timestamp', `${date}T23:59:59`)
+      .order('timestamp', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    // Enrich with member details
+    const memberIds = [...new Set((data || []).map(l => l.member_id).filter(Boolean))];
+    let membersMap = {};
+    if (memberIds.length > 0) {
+      const { data: members } = await supabase
+        .from('members')
+        .select('id, name, phone, status, latest_expiry, fingerprint_id, notes')
+        .in('id', memberIds);
+      (members || []).forEach(m => { membersMap[m.id] = m; });
+    }
+
+    const enriched = (data || []).map(log => ({
+      ...log,
+      member: membersMap[log.member_id] || null,
+    }));
+
+    res.json({ success: true, data: enriched, date, count: enriched.length });
+  } catch (err) {
+    // If access_logs table doesn't exist, return empty
+    if (err.code === '42P01') {
+      return res.json({ success: true, data: [], date, count: 0, note: 'access_logs table not found' });
+    }
+    throw err;
+  }
+});
+
 module.exports = router;

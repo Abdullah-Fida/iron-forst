@@ -115,6 +115,29 @@ const handleAdmsEvent = async (req, res) => {
           deviceSerial,
           validation.status
         );
+
+        // 5. Emit SSE event for real-time UI update
+        if (validation.gymId) {
+          const memberInfo = await fingerprintService.getMemberDetails(validation.memberId);
+          const events = req.app.locals.events;
+          if (events) {
+            events.emit(`scan:${validation.gymId}`, {
+              type: 'scan',
+              fingerprintId,
+              scanTime,
+              device: deviceSerial,
+              verifyMode,
+              access: validation.isValid ? 'granted' : 'denied',
+              status: validation.status,
+              member: memberInfo || {
+                id: validation.memberId,
+                name: 'Unknown',
+              },
+              timestamp: new Date().toISOString(),
+            });
+            console.log(`📡 SSE event emitted for gym ${validation.gymId}`);
+          }
+        }
       }
 
       console.log('-------------------------------------\n');

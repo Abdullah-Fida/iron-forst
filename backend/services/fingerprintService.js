@@ -133,6 +133,28 @@ class FingerprintService {
       console.error('❌ Error logging access:', err.message);
     }
   }
+
+  /**
+   * Get full member details by member ID (used for SSE event payloads).
+   * @param {string} memberId
+   * @returns {Promise<object|null>}
+   */
+  async getMemberDetails(memberId) {
+    if (!memberId) return null;
+    try {
+      const { data, error } = await supabase
+        .from('members')
+        .select('id, name, phone, status, latest_expiry, fingerprint_id, notes')
+        .eq('id', memberId)
+        .maybeSingle();
+
+      if (error || !data) return null;
+      return data;
+    } catch (err) {
+      console.error('❌ Error fetching member details:', err.message);
+      return null;
+    }
+  }
 }
 
 module.exports = new FingerprintService();

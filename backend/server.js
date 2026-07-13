@@ -7,6 +7,7 @@ require('dotenv').config();
 require('express-async-errors');
 
 const express = require('express');
+const { EventEmitter } = require('events');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -23,12 +24,17 @@ const attendanceRoutes = require('./routes/attendance.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const draftsRoutes = require('./routes/drafts.routes');
+const liveRoutes = require('./routes/live.routes');
 
 // Middleware
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// ── Real-time Event Bus (SSE) ─────────
+app.locals.events = new EventEmitter();
+app.locals.events.setMaxListeners(50); // Allow up to 50 concurrent SSE clients
 
 // ── Security & Parsing ──────────────
 app.use(helmet({
@@ -99,6 +105,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/drafts', draftsRoutes);
+app.use('/api/live', liveRoutes);
 
 // ── ZKTeco ADMS Route ─────────────────
 const admsRoutes = require('./routes/adms');
