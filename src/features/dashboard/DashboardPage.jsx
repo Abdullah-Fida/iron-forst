@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
   UserPlus, CreditCard, Activity, Clock, AlertCircle, CalendarDays,
-  TrendingDown, Zap, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  Minus, ChevronRight, Flame, Loader2
+  TrendingDown, Zap, BarChart3, PieChart,
+  ChevronRight, Loader2
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -15,17 +15,89 @@ import { Bar, Doughnut } from 'react-chartjs-2';
 import { StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatPKR, getMonthName, calculateMemberStatus } from '../../lib/utils';
+import { formatPKR, formatDateShort, getMonthName, calculateMemberStatus } from '../../lib/utils';
 import api from '../../lib/api';
 import '../../styles/dashboard.css';
 import '../../styles/loading.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend, Filler);
 
-const C_TEAL  = '#38bdf8';
-const C_GREEN  = '#34d399';
-const C_RED    = '#f87171';
-const C_AMBER  = '#fbbf24';
+// ---------- Custom icon components for missing / problematic icons ----------
+const ArrowUpRight = ({ size = 24, ...props }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <line x1="7" y1="17" x2="17" y2="7" />
+    <polyline points="7 7 17 7 17 17" />
+  </svg>
+);
+
+const ArrowDownRight = ({ size = 24, ...props }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <line x1="7" y1="7" x2="17" y2="17" />
+    <polyline points="17 7 17 17 7 17" />
+  </svg>
+);
+
+const Minus = ({ size = 24, ...props }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
+const Flame = ({ size = 24, ...props }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z" />
+  </svg>
+);
+// ---------------------------------------------------------------------------
+
+const C_TEAL = '#38bdf8';
+const C_GREEN = '#34d399';
+const C_RED = '#f87171';
+const C_AMBER = '#fbbf24';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -71,11 +143,11 @@ export default function DashboardPage() {
         ]);
         if (!isMounted) return;
 
-        const allMembers  = membersRes.data.data  || [];
-        const allPayments = paymentsRes.data.data  || [];
-        const allExpenses = expensesRes.data.data  || [];
-        const staffData   = staffRes.data.data     || [];
-        
+        const allMembers = membersRes.data.data || [];
+        const allPayments = paymentsRes.data.data || [];
+        const allExpenses = expensesRes.data.data || [];
+        const staffData = staffRes.data.data || [];
+
         const byMember = attendanceRes.data.byMember || {};
         const topRegulars = Object.entries(byMember)
           .map(([id, count]) => {
@@ -93,13 +165,13 @@ export default function DashboardPage() {
         const activeMembersList = allMembers.filter(m => m.status !== 'deleted');
         const membersWithStatus = activeMembersList.map(m => ({ ...m, status: calculateMemberStatus(m) }));
 
-        const totalMembers  = membersWithStatus.length;
+        const totalMembers = membersWithStatus.length;
         const activeMembers = membersWithStatus.filter(m => m.status === 'active').length;
-        const expiredCount  = membersWithStatus.filter(m => m.status === 'expired').length;
+        const expiredCount = membersWithStatus.filter(m => m.status === 'expired').length;
 
         const now = new Date();
         const thisMonth = now.getMonth();
-        const thisYear  = now.getFullYear();
+        const thisYear = now.getFullYear();
 
         const thisMonthPayments = allPayments.filter(p => {
           const { y, m } = parseDateParts(p.payment_date);
@@ -114,25 +186,25 @@ export default function DashboardPage() {
         const monthGeneralExpenses = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
         const thisMonthStaffPay = allStaffPayments.filter(p => p.month === thisMonth + 1 && p.year === thisYear);
         const salaryTotal = thisMonthStaffPay.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
-        const totalExp    = monthGeneralExpenses + salaryTotal;
+        const totalExp = monthGeneralExpenses + salaryTotal;
 
         let currMembersAdded = 0, prevMembersAdded = 0;
         let currMembersExpiring = 0, prevMembersExpiring = 0;
         let nearExpire3Days = 0;
 
-        const prevAddedStr    = getPrevDateStr(membersAddedDate);
+        const prevAddedStr = getPrevDateStr(membersAddedDate);
         const prevExpiringStr = getPrevDateStr(membersExpiringDate);
 
         membersWithStatus.forEach(m => {
           if (m.join_date) {
             const jStr = String(m.join_date).slice(0, 10);
-            if (jStr === membersAddedDate)  currMembersAdded++;
-            if (jStr === prevAddedStr)      prevMembersAdded++;
+            if (jStr === membersAddedDate) currMembersAdded++;
+            if (jStr === prevAddedStr) prevMembersAdded++;
           }
           if (m.latest_expiry) {
             const eStr = String(m.latest_expiry).slice(0, 10);
-            if (eStr === membersExpiringDate)  currMembersExpiring++;
-            if (eStr === prevExpiringStr)      prevMembersExpiring++;
+            if (eStr === membersExpiringDate) currMembersExpiring++;
+            if (eStr === prevExpiringStr) prevMembersExpiring++;
             if (m.status !== 'expired') {
               const target = new Date(m.latest_expiry);
               target.setHours(0, 0, 0, 0);
@@ -145,20 +217,20 @@ export default function DashboardPage() {
 
         let currCash = 0, prevCash = 0;
         const prevCashStr = getPrevDateStr(cashDate);
-        const planCounts  = {};
+        const planCounts = {};
 
         allPayments.forEach(p => {
           if (!p.payment_date) return;
           const dStr = String(p.payment_date).slice(0, 10);
-          const amt  = Number(p.amount || 0);
-          if (dStr === cashDate)    currCash += amt;
-          if (dStr === prevCashStr) prevCash  += amt;
+          const amt = Number(p.amount || 0);
+          if (dStr === cashDate) currCash += amt;
+          if (dStr === prevCashStr) prevCash += amt;
           const { y, m } = parseDateParts(p.payment_date);
           if (m === thisMonth && y === thisYear && amt > 0) {
             const plan = p.plan_duration_months || 'Unknown';
-            const key  = String(plan) === 'custom' ? 'Custom Days' : `${plan} Month${plan > 1 ? 's' : ''}`;
+            const key = String(plan) === 'custom' ? 'Custom Days' : `${plan} Month${plan > 1 ? 's' : ''}`;
             if (!planCounts[key]) planCounts[key] = { count: 0, revenue: 0 };
-            planCounts[key].count   += 1;
+            planCounts[key].count += 1;
             planCounts[key].revenue += amt;
           }
         });
@@ -218,28 +290,28 @@ export default function DashboardPage() {
   }
   if (dashboardData?.error) return <div className="page-container"><StateView type="error" title="Dashboard Error" description={dashboardData.msg || 'Check connection.'} /></div>;
 
-  const stats          = dashboardData?.stats;
-  const revenueTrend   = dashboardData?.revenueTrend   || [];
+  const stats = dashboardData?.stats;
+  const revenueTrend = dashboardData?.revenueTrend || [];
   const recentActivity = dashboardData?.recentActivity || [];
-  const popularPlans   = dashboardData?.popularPlans   || [];
-  const topRegulars    = dashboardData?.topRegulars    || [];
+  const popularPlans = dashboardData?.popularPlans || [];
+  const topRegulars = dashboardData?.topRegulars || [];
 
   const revenueData = revenueTrend.map(d => d.revenue);
   const expenseData = revenueTrend.map(d => d.expenses);
-  const profitData  = revenueTrend.map(d => d.profit);
+  const profitData = revenueTrend.map(d => d.profit);
   const trendLabels = revenueTrend.map(d => getMonthName(d.month).slice(0, 3));
 
-  const activeCount  = stats.activeMembers;
+  const activeCount = stats.activeMembers;
   const dueSoonCount = stats.dueSoonCount;
   const expiredCount = stats.expiredCount;
-  const totalCount   = stats.totalMembers;
-  const noPayment    = Math.max(0, totalCount - activeCount - dueSoonCount - expiredCount);
+  const totalCount = stats.totalMembers;
+  const noPayment = Math.max(0, totalCount - activeCount - dueSoonCount - expiredCount);
 
   const getDiff = (curr, prev, isMoney = false) => {
     const diff = curr - prev;
     if (diff === 0) return { label: 'Same as yesterday', dir: 'neutral' };
     const sign = diff > 0 ? '+' : '';
-    const val  = isMoney ? formatPKR(Math.abs(diff)) : Math.abs(diff);
+    const val = isMoney ? formatPKR(Math.abs(diff)) : Math.abs(diff);
     return { label: `${sign}${val} vs yesterday`, dir: diff > 0 ? 'up' : 'down' };
   };
 
@@ -258,8 +330,8 @@ export default function DashboardPage() {
   const revenueChartData = {
     labels: trendLabels,
     datasets: [
-      { label: 'Revenue',  data: revenueData, backgroundColor: 'rgba(56,189,248,0.85)', borderColor: C_TEAL,  borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_TEAL },
-      { label: 'Expenses', data: expenseData, backgroundColor: 'rgba(248,113,113,0.6)', borderColor: C_RED,   borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_RED  },
+      { label: 'Revenue', data: revenueData, backgroundColor: 'rgba(56,189,248,0.85)', borderColor: C_TEAL, borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_TEAL },
+      { label: 'Expenses', data: expenseData, backgroundColor: 'rgba(248,113,113,0.6)', borderColor: C_RED, borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_RED },
     ]
   };
 
@@ -290,10 +362,10 @@ export default function DashboardPage() {
   const greetEmoji = hour < 12 ? '☀️' : hour < 17 ? '⚡' : '🌙';
 
   const QUICK_ACTIONS = [
-    { icon: <UserPlus size={16}/>,      label: 'Add Member',    path: '/members/add',            color: 'qa-teal'   },
-    { icon: <CreditCard size={16}/>,    label: 'Collect Fee',   path: '/payments/add',           color: 'qa-green'  },
-    { icon: <AlertTriangle size={16}/>, label: 'View Expired',  path: '/members?status=expired', color: 'qa-red'    },
-    { icon: <CalendarCheck size={16}/>, label: 'Attendance',    path: '/attendance',             color: 'qa-purple' },
+    { icon: <UserPlus size={16} />, label: 'Add Member', path: '/members/add', color: 'qa-teal' },
+    { icon: <CreditCard size={16} />, label: 'Collect Fee', path: '/payments/add', color: 'qa-green' },
+    { icon: <AlertTriangle size={16} />, label: 'View Expired', path: '/members?status=expired', color: 'qa-red' },
+    { icon: <CalendarCheck size={16} />, label: 'Attendance', path: '/attendance', color: 'qa-purple' },
   ];
 
   return (
@@ -355,12 +427,12 @@ export default function DashboardPage() {
               </div>
               <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : formatPKR(stats.currCash)}</div>
               <div className={`db-kpi-diff diff-${dir}`}>
-                {dir === 'up' && <ArrowUpRight size={12}/>}
-                {dir === 'down' && <ArrowDownRight size={12}/>}
-                {dir === 'neutral' && <Minus size={12}/>}
+                {dir === 'up' && <ArrowUpRight size={12} />}
+                {dir === 'down' && <ArrowDownRight size={12} />}
+                {dir === 'neutral' && <Minus size={12} />}
                 {label}
               </div>
-              <div className="db-kpi-bg-icon"><DollarSign size={64}/></div>
+              <div className="db-kpi-bg-icon"><DollarSign size={64} /></div>
             </div>
           );
         })()}
@@ -376,12 +448,12 @@ export default function DashboardPage() {
               </div>
               <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersAdded}</div>
               <div className={`db-kpi-diff diff-${dir}`}>
-                {dir === 'up' && <ArrowUpRight size={12}/>}
-                {dir === 'down' && <ArrowDownRight size={12}/>}
-                {dir === 'neutral' && <Minus size={12}/>}
+                {dir === 'up' && <ArrowUpRight size={12} />}
+                {dir === 'down' && <ArrowDownRight size={12} />}
+                {dir === 'neutral' && <Minus size={12} />}
                 {label}
               </div>
-              <div className="db-kpi-bg-icon"><UserPlus size={64}/></div>
+              <div className="db-kpi-bg-icon"><UserPlus size={64} /></div>
             </div>
           );
         })()}
@@ -397,12 +469,12 @@ export default function DashboardPage() {
               </div>
               <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersExpiring}</div>
               <div className={`db-kpi-diff diff-${dir}`}>
-                {dir === 'up' && <ArrowUpRight size={12}/>}
-                {dir === 'down' && <ArrowDownRight size={12}/>}
-                {dir === 'neutral' && <Minus size={12}/>}
+                {dir === 'up' && <ArrowUpRight size={12} />}
+                {dir === 'down' && <ArrowDownRight size={12} />}
+                {dir === 'neutral' && <Minus size={12} />}
                 {label}
               </div>
-              <div className="db-kpi-bg-icon"><AlertTriangle size={64}/></div>
+              <div className="db-kpi-bg-icon"><AlertTriangle size={64} /></div>
             </div>
           );
         })()}
@@ -414,9 +486,9 @@ export default function DashboardPage() {
           </div>
           <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.dueSoonCount}</div>
           <div className="db-kpi-diff diff-warning">
-            <Clock size={12}/> Needs attention
+            <Clock size={12} /> Needs attention
           </div>
-          <div className="db-kpi-bg-icon"><Clock size={64}/></div>
+          <div className="db-kpi-bg-icon"><Clock size={64} /></div>
         </div>
 
       </div>
@@ -426,7 +498,7 @@ export default function DashboardPage() {
       ══════════════════════════════════════════ */}
       <div className="db-monthly-strip">
         <div className="db-monthly-card">
-          <div className="db-monthly-icon icon-teal"><TrendingUp size={16}/></div>
+          <div className="db-monthly-icon icon-teal"><TrendingUp size={16} /></div>
           <div>
             <div className="db-monthly-label">Monthly Revenue</div>
             <div className="db-monthly-value text-teal">{formatPKR(stats.revenue)}</div>
@@ -434,7 +506,7 @@ export default function DashboardPage() {
         </div>
         <div className="db-strip-divider" />
         <div className="db-monthly-card">
-          <div className="db-monthly-icon icon-red"><TrendingDown size={16}/></div>
+          <div className="db-monthly-icon icon-red"><TrendingDown size={16} /></div>
           <div>
             <div className="db-monthly-label">Total Expenses</div>
             <div className="db-monthly-value text-red">{formatPKR(stats.expenses)}</div>
@@ -442,7 +514,7 @@ export default function DashboardPage() {
         </div>
         <div className="db-strip-divider" />
         <div className="db-monthly-card">
-          <div className="db-monthly-icon" style={{ color: 'var(--status-active)', background: 'var(--status-active-bg)' }}><DollarSign size={16}/></div>
+          <div className="db-monthly-icon" style={{ color: 'var(--status-active)', background: 'var(--status-active-bg)' }}><DollarSign size={16} /></div>
           <div>
             <div className="db-monthly-label">Net Profit</div>
             <div className="db-monthly-value" style={{ color: 'var(--status-active)' }}>{formatPKR(stats.profit)}</div>
@@ -483,7 +555,7 @@ export default function DashboardPage() {
               <div className="db-empty">No recent payments recorded.</div>
             )}
             <button className="db-view-all-btn" onClick={() => navigate('/payments')}>
-              View All Payments <ChevronRight size={14}/>
+              View All Payments <ChevronRight size={14} />
             </button>
           </div>
 
@@ -495,8 +567,8 @@ export default function DashboardPage() {
           <div className="db-panel db-chart-panel">
             <div className="db-chart-tabs">
               {[
-                { key: 'revenue', icon: <BarChart3 size={13}/>, label: 'Revenue vs Expenses' },
-                { key: 'members', icon: <PieChart size={13}/>,  label: 'Members' },
+                { key: 'revenue', icon: <BarChart3 size={13} />, label: 'Revenue vs Expenses' },
+                { key: 'members', icon: <PieChart size={13} />, label: 'Members' },
               ].map(t => (
                 <button key={t.key} className={`db-chart-tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
                   {t.icon}
@@ -514,8 +586,8 @@ export default function DashboardPage() {
                       <div className="db-chart-sub">Last 6 months · PKR</div>
                     </div>
                     <div className="db-chart-legend">
-                      <span className="db-legend-dot" style={{ background: C_TEAL }}/> Revenue
-                      <span className="db-legend-dot" style={{ background: C_RED, marginLeft: 12 }}/> Expenses
+                      <span className="db-legend-dot" style={{ background: C_TEAL }} /> Revenue
+                      <span className="db-legend-dot" style={{ background: C_RED, marginLeft: 12 }} /> Expenses
                     </div>
                   </div>
                   <div style={{ height: 240 }}>
@@ -537,10 +609,10 @@ export default function DashboardPage() {
                     </div>
                     <div className="db-donut-legend">
                       {[
-                        { label: 'Active',     count: activeCount,  color: C_GREEN  },
-                        { label: 'Due Soon',   count: dueSoonCount, color: C_AMBER  },
-                        { label: 'Expired',    count: expiredCount, color: C_RED    },
-                        { label: 'No Payment', count: noPayment,    color: '#243447'},
+                        { label: 'Active', count: activeCount, color: C_GREEN },
+                        { label: 'Due Soon', count: dueSoonCount, color: C_AMBER },
+                        { label: 'Expired', count: expiredCount, color: C_RED },
+                        { label: 'No Payment', count: noPayment, color: '#243447' },
                       ].map(item => (
                         <div key={item.label} className="db-legend-row">
                           <span className="db-legend-swatch" style={{ background: item.color }} />
@@ -569,7 +641,7 @@ export default function DashboardPage() {
             <div className="db-status-list">
               <div className="db-status-row status-danger" onClick={() => navigate('/members?status=expired')}>
                 <div className="db-status-left">
-                  <div className="db-status-icon"><AlertCircle size={16}/></div>
+                  <div className="db-status-icon"><AlertCircle size={16} /></div>
                   <div>
                     <div className="db-status-label">Total Expired</div>
                     <div className="db-status-hint">Click to view</div>
@@ -580,7 +652,7 @@ export default function DashboardPage() {
 
               <div className="db-status-row status-warning">
                 <div className="db-status-left">
-                  <div className="db-status-icon"><Clock size={16}/></div>
+                  <div className="db-status-icon"><Clock size={16} /></div>
                   <div>
                     <div className="db-status-label">Expiring in 3 Days</div>
                     <div className="db-status-hint">Needs attention</div>
@@ -591,7 +663,7 @@ export default function DashboardPage() {
 
               <div className="db-status-row status-success">
                 <div className="db-status-left">
-                  <div className="db-status-icon"><Users size={16}/></div>
+                  <div className="db-status-icon"><Users size={16} /></div>
                   <div>
                     <div className="db-status-label">Active Members</div>
                     <div className="db-status-hint">Out of {stats.totalMembers} total</div>
