@@ -18,7 +18,7 @@ class MqttService {
       return;
     }
 
-    const brokerUrl = `mqtt://${host}:${port || 1883}`;
+    const brokerUrl = `mqtts://${host}:${port || 8883}`;
 
     console.log(`Connecting to MQTT broker at ${brokerUrl}...`);
 
@@ -26,6 +26,7 @@ class MqttService {
       username: username || undefined,
       password: password || undefined,
       reconnectPeriod: 5000,
+      rejectUnauthorized: false,  // Accept HiveMQ Cloud's certificate
     });
 
     this.client.on('connect', () => {
