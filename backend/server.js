@@ -25,6 +25,7 @@ const notificationsRoutes = require('./routes/notifications.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const draftsRoutes = require('./routes/drafts.routes');
 const liveRoutes = require('./routes/live.routes');
+const whatsappRoutes = require('./routes/whatsapp.routes');
 
 // Middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -106,6 +107,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/drafts', draftsRoutes);
 app.use('/api/live', liveRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // ── ZKTeco ADMS Route ─────────────────
 const admsRoutes = require('./routes/adms');

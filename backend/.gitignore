@@ -4,3 +4,7 @@ node_modules/
 npm-debug.log*
 dist/
 .DS_Store
+
+# WhatsApp Web JS Session Files
+.wwebjs_auth/
+.wwebjs_cache/
