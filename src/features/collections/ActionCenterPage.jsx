@@ -73,16 +73,15 @@ export default function ActionCenterPage() {
   useEffect(() => {
     fetchData();
     fetchWaStatus();
+  }, []);
 
-    // Poll WA status if not connected
+  // Separate stable polling effect — keeps polling every 2s regardless of status
+  useEffect(() => {
     const interval = setInterval(() => {
-      if (waStatus !== 'CONNECTED') {
-        fetchWaStatus();
-      }
-    }, 3000);
-
+      fetchWaStatus();
+    }, 2000);
     return () => clearInterval(interval);
-  }, [waStatus]);
+  }, []);
 
   const stats = useMemo(() => {
     const overdue = members.filter(m => m.status === 'expired');
@@ -233,9 +232,9 @@ export default function ActionCenterPage() {
           <div>
             <h3 style={{ margin: '0 0 4px', fontSize: '16px' }}>Automated WhatsApp Bot</h3>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
-              {waStatus === 'CONNECTED' ? 'Connected and ready to send messages!' : 
-               waStatus === 'QR_READY' ? 'Scan the QR code to connect' :
-               waStatus === 'AUTHENTICATING' ? 'Authenticating...' :
+              {waStatus === 'CONNECTED' ? '✅ Connected and ready to send messages!' :
+               waStatus === 'QR_READY' ? '📱 Scan the QR code with your phone WhatsApp' :
+               waStatus === 'AUTHENTICATING' ? '⏳ Starting Chrome browser, please wait 30-60 seconds...' :
                'Connect WhatsApp to enable 1-click bulk messaging.'}
             </p>
           </div>
@@ -247,13 +246,20 @@ export default function ActionCenterPage() {
               <PowerOff size={16} /> Disconnect
             </button>
           ) : waStatus === 'QR_READY' && waQrCode ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <img src={waQrCode} alt="WhatsApp QR Code" style={{ width: '80px', height: '80px', borderRadius: '8px', border: '1px solid var(--border-color)' }} />
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Scan with<br/>WhatsApp</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <img src={waQrCode} alt="WhatsApp QR Code" style={{ width: '120px', height: '120px', borderRadius: '8px', border: '2px solid #25D366', background: '#fff', padding: '4px' }} />
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '100px' }}>
+                Open <strong>WhatsApp</strong> → Linked Devices → Scan this code
+              </div>
+            </div>
+          ) : waStatus === 'AUTHENTICATING' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-muted)', fontSize: '13px' }}>
+              <Loader2 size={24} className="spin" style={{ color: '#25D366' }} />
+              <span>Starting bot...</span>
             </div>
           ) : (
-            <button className="btn btn-whatsapp" onClick={connectWhatsApp} disabled={isWaLoading || waStatus === 'AUTHENTICATING'}>
-              {isWaLoading || waStatus === 'AUTHENTICATING' ? <Loader2 size={16} className="spin" /> : <QrCode size={16} />}
+            <button className="btn btn-whatsapp" onClick={connectWhatsApp} disabled={isWaLoading} style={{ boxShadow: '0 4px 12px rgba(37,211,102,0.3)' }}>
+              {isWaLoading ? <Loader2 size={16} className="spin" /> : <QrCode size={16} />}
               Connect WhatsApp
             </button>
           )}

@@ -93,9 +93,24 @@ class WhatsAppService extends EventEmitter {
       await this.client.initialize();
       this.isInitializing = false;
     } catch (err) {
-      console.error('❌ WhatsApp Initialization failed:', err);
+      console.error('❌ WhatsApp Initialization failed:', err.message);
+      this.client = null;
       this.status = 'DISCONNECTED';
       this.isInitializing = false;
+
+      // Auto-recover: if Chrome is already running with this session, clear and retry once
+      if (err.message && err.message.includes('browser is already running')) {
+        console.log('🔄 Stale Chrome session detected. Clearing and retrying...');
+        const fs = require('fs');
+        const path = require('path');
+        const sessionPath = path.join(__dirname, '..', '.wwebjs_auth');
+        try {
+          fs.rmSync(sessionPath, { recursive: true, force: true });
+          console.log('✅ Stale session cleared. Please click Connect again.');
+        } catch (e) {
+          console.error('Failed to clear session:', e.message);
+        }
+      }
     }
   }
 
