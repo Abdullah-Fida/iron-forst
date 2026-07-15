@@ -4,6 +4,15 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    watch: {
+      // Ignore WhatsApp session files locked by Chrome — prevents EBUSY crash
+      ignored: [
+        '**/backend/.wwebjs_auth/**',
+        '**/backend/.wwebjs_cache/**',
+      ]
+    }
+  },
   plugins: [
     react(),
     VitePWA({

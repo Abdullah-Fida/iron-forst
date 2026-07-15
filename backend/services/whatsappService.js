@@ -19,23 +19,36 @@ class WhatsAppService extends EventEmitter {
 
     console.log('🤖 Initializing WhatsApp Bot...');
 
+    const isWindows = process.platform === 'win32';
+    const isRender = !!process.env.RENDER; // Render sets this env var automatically
+
+    // On Windows dev machine: use local Chrome (avoids downloading Chromium)
+    // On Render/Linux: let Puppeteer use its own bundled Chromium
+    const puppeteerConfig = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
+    };
+
+    if (isWindows && !isRender) {
+      puppeteerConfig.executablePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    }
+
     try {
+      // On Linux (Render), write session to /tmp which is writable
+      // On Windows, use local folder
+      const authDataPath = isWindows ? undefined : '/tmp';
+
       this.client = new Client({
-        authStrategy: new LocalAuth({ clientId: 'core-gym-bot' }),
-        puppeteer: {
-          headless: true,
-          executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
-          ]
-        }
+        authStrategy: new LocalAuth({ clientId: 'core-gym-bot', dataPath: authDataPath }),
+        puppeteer: puppeteerConfig
       });
 
       this.client.on('qr', async (qr) => {

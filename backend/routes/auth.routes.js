@@ -69,7 +69,18 @@ router.post('/register', async (req, res) => {
   });
   const body = schema.parse({ ...req.body, default_monthly_fee: Number(req.body.default_monthly_fee) || 3000 });
 
-  // Check duplicate
+  // 1. Single-Tenant Lock: Check if ANY gym already exists in the database
+  const { data: allGyms, error: checkErr } = await supabase.from('gyms').select('id');
+  if (checkErr) return res.status(500).json({ success: false, message: 'Database error' });
+  
+  if (allGyms && allGyms.length > 0) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Registration is locked. This software is exclusively licensed to Iron Fost Gym.' 
+    });
+  }
+
+  // Check duplicate email (just in case)
   if (body.email) {
     const { data: existing } = await supabase.from('gyms').select('id').eq('email', body.email).maybeSingle();
     if (existing) return res.status(409).json({ success: false, message: 'Email already registered' });
@@ -79,7 +90,7 @@ router.post('/register', async (req, res) => {
   const storedHash = hash;
 
   const { data: gym, error } = await supabase.from('gyms').insert({
-    gym_name: body.gym_name,
+    gym_name: 'Iron Fost Gym',
     owner_name: body.owner_name,
     phone: body.phone,
     email: body.email?.toLowerCase(),

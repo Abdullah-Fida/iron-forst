@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ironfost-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npx puppeteer browsers install chrome
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: false
