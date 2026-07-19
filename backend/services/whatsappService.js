@@ -1,182 +1,152 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
-const EventEmitter = require('events');
+/**
+ * Iron Fost — Twilio WhatsApp Service
+ *
+ * Replaces whatsapp-web.js (headless Chrome / QR scan approach) with
+ * Twilio's reliable WhatsApp Business API.
+ *
+ * Required .env variables:
+ *   TWILIO_ACCOUNT_SID   — from console.twilio.com → Account Info
+ *   TWILIO_AUTH_TOKEN    — from console.twilio.com → Account Info
+ *   TWILIO_WA_FROM       — your Twilio WhatsApp sender, e.g. whatsapp:+14155238886
+ *                          (use the Sandbox number for testing, or your approved number for production)
+ *
+ * Twilio WhatsApp Sandbox (free testing):
+ *   1. Go to console.twilio.com → Messaging → Try it out → Send a WhatsApp message
+ *   2. Have the recipient send the join code to the sandbox number ONCE to opt-in
+ *   3. After that, you can freely message them
+ *
+ * Production (approved number):
+ *   1. Apply for a WhatsApp Business Profile in the Twilio console
+ *   2. Once approved, set TWILIO_WA_FROM to your approved number
+ */
 
-class WhatsAppService extends EventEmitter {
+const twilio = require('twilio');
+
+// ─── Formatting helpers ─────────────────────────────────────────────────────
+
+/**
+ * Converts any Pakistan phone number format to international E.164 format.
+ * - 03001234567  → +923001234567
+ * - 3001234567   → +923001234567
+ * - 923001234567 → +923001234567
+ */
+function formatPakistaniPhone(rawPhone) {
+  let phone = String(rawPhone || '').replace(/[^0-9]/g, '');
+
+  if (phone.startsWith('92') && phone.length === 12) {
+    return `+${phone}`;
+  }
+  if (phone.startsWith('0') && phone.length === 11) {
+    return `+92${phone.slice(1)}`;
+  }
+  if (phone.length === 10 && !phone.startsWith('0') && !phone.startsWith('92')) {
+    return `+92${phone}`;
+  }
+  // Fallback: prepend + if already has country code
+  if (phone.length >= 12) return `+${phone}`;
+
+  return null; // Invalid
+}
+
+// ─── Service class ──────────────────────────────────────────────────────────
+
+class TwilioWhatsAppService {
   constructor() {
-    super();
     this.client = null;
-    this.status = 'DISCONNECTED'; // DISCONNECTED, QR_READY, CONNECTED, AUTHENTICATING
-    this.qrDataUrl = null;
-    this.isInitializing = false;
+    this.configured = false;
+    this._initClient();
   }
 
-  async initialize() {
-    if (this.isInitializing || this.status === 'CONNECTED') return;
-    this.isInitializing = true;
-    this.status = 'AUTHENTICATING';
-    this.qrDataUrl = null;
+  _initClient() {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
 
-    console.log('🤖 Initializing WhatsApp Bot...');
-
-    const isWindows = process.platform === 'win32';
-    const isRender = !!process.env.RENDER; // Render sets this env var automatically
-
-    // On Windows dev machine: use local Chrome (avoids downloading Chromium)
-    // On Render/Linux: let Puppeteer use its own bundled Chromium
-    const puppeteerConfig = {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    };
-
-    if (isWindows && !isRender) {
-      puppeteerConfig.executablePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    if (!sid || !token || sid.startsWith('YOUR_') || token.startsWith('YOUR_')) {
+      console.warn('⚠️  Twilio credentials not set. WhatsApp sending will be disabled until TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are added to .env');
+      return;
     }
 
     try {
-      // On Linux (Render), write session to /tmp which is writable
-      // On Windows, use local folder
-      const authDataPath = isWindows ? undefined : '/tmp';
-
-      this.client = new Client({
-        authStrategy: new LocalAuth({ clientId: 'core-gym-bot', dataPath: authDataPath }),
-        puppeteer: puppeteerConfig
-      });
-
-      this.client.on('qr', async (qr) => {
-        console.log('📱 WhatsApp QR Code received. Awaiting scan...');
-        this.status = 'QR_READY';
-        try {
-          this.qrDataUrl = await qrcode.toDataURL(qr, { margin: 2, width: 300 });
-          this.emit('qr_updated', this.qrDataUrl);
-        } catch (err) {
-          console.error('❌ Failed to generate QR data URL:', err);
-        }
-      });
-
-      this.client.on('ready', () => {
-        console.log('✅ WhatsApp Bot is READY and connected!');
-        this.status = 'CONNECTED';
-        this.qrDataUrl = null;
-        this.emit('status_changed', this.status);
-      });
-
-      this.client.on('authenticated', () => {
-        console.log('🔐 WhatsApp Authenticated successfully.');
-        this.status = 'AUTHENTICATING'; // Will turn to READY soon
-      });
-
-      this.client.on('auth_failure', msg => {
-        console.error('❌ WhatsApp Auth failure:', msg);
-        this.status = 'DISCONNECTED';
-        this.qrDataUrl = null;
-        this.isInitializing = false;
-        this.emit('status_changed', this.status);
-      });
-
-      this.client.on('disconnected', (reason) => {
-        console.log('🔌 WhatsApp Disconnected:', reason);
-        this.status = 'DISCONNECTED';
-        this.qrDataUrl = null;
-        this.isInitializing = false;
-        this.emit('status_changed', this.status);
-      });
-
-      await this.client.initialize();
-      this.isInitializing = false;
+      this.client = twilio(sid, token);
+      this.configured = true;
+      console.log('✅ Twilio WhatsApp Service initialized.');
     } catch (err) {
-      console.error('❌ WhatsApp Initialization failed:', err.message);
-      this.client = null;
-      this.status = 'DISCONNECTED';
-      this.isInitializing = false;
-
-      // Auto-recover: if Chrome is already running with this session, clear and retry once
-      if (err.message && err.message.includes('browser is already running')) {
-        console.log('🔄 Stale Chrome session detected. Clearing and retrying...');
-        const fs = require('fs');
-        const path = require('path');
-        const sessionPath = path.join(__dirname, '..', '.wwebjs_auth');
-        try {
-          fs.rmSync(sessionPath, { recursive: true, force: true });
-          console.log('✅ Stale session cleared. Please click Connect again.');
-        } catch (e) {
-          console.error('Failed to clear session:', e.message);
-        }
-      }
+      console.error('❌ Failed to initialize Twilio client:', err.message);
     }
   }
 
-  async logout() {
-    if (this.client) {
-      try {
-        await this.client.logout();
-        await this.client.destroy();
-      } catch (e) {
-        console.error('Error destroying client:', e);
-      }
-      this.client = null;
-    }
-    this.status = 'DISCONNECTED';
-    this.qrDataUrl = null;
-    this.isInitializing = false;
-    this.emit('status_changed', this.status);
-  }
-
+  /**
+   * Returns the current service status.
+   * "CONNECTED" if Twilio credentials are set, "DISCONNECTED" otherwise.
+   */
   getStatus() {
     return {
-      status: this.status,
-      qrCode: this.qrDataUrl
+      status: this.configured ? 'CONNECTED' : 'DISCONNECTED',
+      provider: 'twilio',
+      qrCode: null // No QR needed with Twilio
     };
   }
 
+  /**
+   * Sends a single WhatsApp message via Twilio.
+   * @param {string} phone - Recipient's phone number (any Pakistani format)
+   * @param {string} message - Text body to send
+   * @returns {{ success: boolean, message?: string, sid?: string }}
+   */
   async sendMessage(phone, message) {
-    if (this.status !== 'CONNECTED' || !this.client) {
-      throw new Error('WhatsApp is not connected.');
+    if (!this.configured || !this.client) {
+      throw new Error('Twilio is not configured. Please set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WA_FROM in your .env file.');
     }
 
     if (!phone) throw new Error('Phone number is required.');
+    if (!message) throw new Error('Message body is required.');
 
-    // Format phone number to WhatsApp ID
-    let cleaned = phone.replace(/[^0-9]/g, '');
-    if (cleaned.startsWith('0') && cleaned.length === 11) {
-      cleaned = '92' + cleaned.substring(1);
-    } else if (cleaned.length === 10 && !cleaned.startsWith('92')) {
-      cleaned = '92' + cleaned;
+    const fromNumber = process.env.TWILIO_WA_FROM;
+    if (!fromNumber) {
+      throw new Error('TWILIO_WA_FROM is not set in .env. Example: whatsapp:+14155238886');
     }
 
-    const chatId = `${cleaned}@c.us`;
+    const formatted = formatPakistaniPhone(phone);
+    if (!formatted) {
+      console.warn(`⚠️  Invalid phone number skipped: "${phone}"`);
+      return { success: false, message: `Invalid phone number: ${phone}` };
+    }
 
     try {
-      // Check if number is registered on WhatsApp
-      const isRegistered = await this.client.isRegisteredUser(chatId);
-      if (!isRegistered) {
-        console.warn(`⚠️ Number ${cleaned} is not registered on WhatsApp.`);
-        return { success: false, message: 'Number not on WhatsApp' };
-      }
+      const msg = await this.client.messages.create({
+        from: fromNumber,                  // e.g. "whatsapp:+14155238886"
+        to: `whatsapp:${formatted}`,        // e.g. "whatsapp:+923001234567"
+        body: message,
+      });
 
-      await this.client.sendMessage(chatId, message);
-      console.log(`✉️ Message sent to ${cleaned}`);
-      return { success: true };
+      console.log(`✉️  WhatsApp sent to ${formatted} | SID: ${msg.sid} | Status: ${msg.status}`);
+      return { success: true, sid: msg.sid, status: msg.status };
     } catch (err) {
-      console.error(`❌ Failed to send message to ${cleaned}:`, err.message);
-      throw err;
+      console.error(`❌ Failed to send WhatsApp to ${formatted}:`, err.message);
+
+      // Surface friendly Twilio error codes to the caller
+      const userMessage = err.code === 63007
+        ? 'Recipient has not opted in to the Twilio WhatsApp Sandbox. They must send the join code first.'
+        : err.code === 21608
+        ? 'The recipient is not a WhatsApp user or is not reachable.'
+        : err.message;
+
+      throw new Error(userMessage);
     }
   }
 
-  async sendBulkMessages(messages, delayMs = 3000) {
-    if (this.status !== 'CONNECTED' || !this.client) {
-      throw new Error('WhatsApp is not connected.');
+  /**
+   * Sends bulk WhatsApp messages with a configurable delay between each.
+   * Runs sequentially to comply with Twilio rate limits.
+   * @param {{ phone: string, message: string }[]} messages
+   * @param {number} delayMs - Delay between each message (default: 1500ms)
+   */
+  async sendBulkMessages(messages, delayMs = 1500) {
+    if (!this.configured || !this.client) {
+      throw new Error('Twilio is not configured.');
     }
 
-    console.log(`🚀 Starting bulk send of ${messages.length} messages...`);
+    console.log(`🚀 Twilio bulk send starting — ${messages.length} message(s)...`);
     const results = { successful: 0, failed: 0, skipped: 0, errors: [] };
 
     for (let i = 0; i < messages.length; i++) {
@@ -191,17 +161,18 @@ class WhatsAppService extends EventEmitter {
       } catch (err) {
         results.failed++;
         results.errors.push({ phone, error: err.message });
+        console.error(`  ✗ Failed for ${phone}: ${err.message}`);
       }
 
-      // Delay to prevent getting banned for spamming
+      // Pause between sends to avoid rate-limiting
       if (i < messages.length - 1) {
         await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
 
-    console.log(`🏁 Bulk send finished. Success: ${results.successful}, Failed: ${results.failed}`);
+    console.log(`🏁 Bulk send done. ✓ ${results.successful} sent | ✗ ${results.failed} failed | ⚠ ${results.skipped} skipped`);
     return results;
   }
 }
 
-module.exports = new WhatsAppService();
+module.exports = new TwilioWhatsAppService();

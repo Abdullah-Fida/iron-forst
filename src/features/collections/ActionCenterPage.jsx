@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Send, CreditCard, Clock, Bell, CheckCircle2, Loader2, MessageSquare, QrCode, PowerOff } from 'lucide-react';
+import { AlertTriangle, Send, CreditCard, Clock, Bell, CheckCircle2, Loader2, MessageSquare } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -17,10 +17,8 @@ export default function ActionCenterPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
-  // WhatsApp Bot State
-  const [waStatus, setWaStatus] = useState('DISCONNECTED'); // DISCONNECTED, AUTHENTICATING, QR_READY, CONNECTED
-  const [waQrCode, setWaQrCode] = useState(null);
-  const [isWaLoading, setIsWaLoading] = useState(false);
+  // Twilio WhatsApp state
+  const [waConfigured, setWaConfigured] = useState(false);
   const [isBulkSending, setIsBulkSending] = useState(false);
 
   // WhatsApp edit state for Staff Alerts
@@ -62,8 +60,7 @@ export default function ActionCenterPage() {
     try {
       const res = await api.get('/whatsapp/status');
       if (res.data.success) {
-        setWaStatus(res.data.data.status);
-        setWaQrCode(res.data.data.qrCode);
+        setWaConfigured(res.data.data.status === 'CONNECTED');
       }
     } catch (err) {
       console.error('Failed to fetch WA status', err);
@@ -73,14 +70,6 @@ export default function ActionCenterPage() {
   useEffect(() => {
     fetchData();
     fetchWaStatus();
-  }, []);
-
-  // Separate stable polling effect — keeps polling every 2s regardless of status
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchWaStatus();
-    }, 2000);
-    return () => clearInterval(interval);
   }, []);
 
   const stats = useMemo(() => {
@@ -108,80 +97,33 @@ export default function ActionCenterPage() {
     return items;
   }, [members, staffAlerts, filter]);
 
-  // --- WhatsApp Actions ---
-  const connectWhatsApp = async () => {
-    setIsWaLoading(true);
-    try {
-      await api.post('/whatsapp/start');
-      toast.success('Initializing WhatsApp Bot...');
-      fetchWaStatus();
-    } catch (err) {
-      toast.error('Failed to start WhatsApp Bot');
-    } finally {
-      setIsWaLoading(false);
-    }
-  };
-
-  const disconnectWhatsApp = async () => {
-    if (!window.confirm('Are you sure you want to log out from WhatsApp?')) return;
-    setIsWaLoading(true);
-    try {
-      await api.post('/whatsapp/logout');
-      setWaStatus('DISCONNECTED');
-      setWaQrCode(null);
-      toast.success('WhatsApp disconnected');
-    } catch (err) {
-      toast.error('Failed to disconnect');
-    } finally {
-      setIsWaLoading(false);
-    }
-  };
+  // --- Twilio WhatsApp Actions ---
 
   const handleBotRemind = async (member) => {
-    if (waStatus !== 'CONNECTED') {
-      toast.error('Please connect WhatsApp first!');
-      return;
-    }
-    
-    // Gym settings might be needed for template, if user doesn't have it, we use a default
     const defaultGym = { gym_name: user?.gymName || 'Gym', wa_msg_active: 'Hello [Name], this is a reminder from [GymName].' };
     const msg = buildWhatsAppMessage(member, user?.gym || defaultGym);
-    
     const promise = api.post('/whatsapp/send', { phone: member.phone, message: msg });
     toast.promise(promise, {
-      loading: `Sending message to ${member.name}...`,
+      loading: `Sending to ${member.name}...`,
       success: `Message sent to ${member.name}!`,
-      error: 'Failed to send message.'
+      error: (err) => err.response?.data?.error || 'Failed to send message.'
     });
   };
 
   const handleBulkRemind = async () => {
-    if (waStatus !== 'CONNECTED') {
-      toast.error('Please connect WhatsApp first!');
-      return;
-    }
-
     const membersToRemind = displayedItems.filter(i => i.itemType === 'member' && i.phone);
-    if (membersToRemind.length === 0) {
-      toast.error('No members with valid phone numbers to remind.');
-      return;
-    }
-
-    if (!window.confirm(`Are you sure you want to send a bulk message to ${membersToRemind.length} members?`)) return;
+    if (membersToRemind.length === 0) { toast.error('No members with valid phone numbers.'); return; }
+    if (!window.confirm(`Send bulk WhatsApp to ${membersToRemind.length} members via Twilio?`)) return;
 
     setIsBulkSending(true);
     const defaultGym = { gym_name: user?.gymName || 'Gym', wa_msg_active: 'Hello [Name], this is a reminder from [GymName].' };
-    
-    const messages = membersToRemind.map(member => ({
-      phone: member.phone,
-      message: buildWhatsAppMessage(member, user?.gym || defaultGym)
-    }));
+    const messages = membersToRemind.map(m => ({ phone: m.phone, message: buildWhatsAppMessage(m, user?.gym || defaultGym) }));
 
     try {
       await api.post('/whatsapp/send-bulk', { messages });
-      toast.success('Bulk sending started! Messages are being sent in the background.');
+      toast.success(`Sending ${messages.length} messages in the background via Twilio!`);
     } catch (err) {
-      toast.error('Failed to start bulk send.');
+      toast.error(err.response?.data?.error || 'Failed to start bulk send.');
     } finally {
       setIsBulkSending(false);
     }
@@ -189,16 +131,14 @@ export default function ActionCenterPage() {
 
   const handleAlertSend = async () => {
     if (!editNotif) return;
-
-    // Send via bot if connected, else wa.me
-    if (waStatus === 'CONNECTED') {
+    if (waConfigured) {
       const promise = api.post('/whatsapp/send', { phone: editNotif.recipient_phone, message: editMessage });
-      toast.promise(promise, { loading: 'Sending...', success: 'Sent!', error: 'Failed' });
+      toast.promise(promise, { loading: 'Sending via Twilio...', success: 'Sent!', error: (e) => e.response?.data?.error || 'Failed to send' });
     } else {
+      // Fallback: open wa.me link
       const link = getWhatsAppLink(editNotif.recipient_phone || '', editMessage);
       window.open(link, '_blank');
     }
-    
     try {
       await api.patch(`/notifications/${editNotif.id}/sent`);
       setEditNotif(null);
@@ -218,10 +158,10 @@ export default function ActionCenterPage() {
         </div>
       </div>
 
-      {/* ── WhatsApp Connection Banner ── */}
-      <div style={{ 
-        background: waStatus === 'CONNECTED' ? 'var(--status-active-bg)' : 'var(--bg-secondary)', 
-        border: `1px solid ${waStatus === 'CONNECTED' ? 'var(--status-active)' : 'var(--border-color)'}`,
+      {/* ── Twilio WhatsApp Status Banner ── */}
+      <div style={{
+        background: waConfigured ? 'var(--status-active-bg)' : 'var(--bg-secondary)',
+        border: `1px solid ${waConfigured ? 'var(--status-active)' : 'var(--border-color)'}`,
         padding: '16px 24px', borderRadius: '16px', marginBottom: 'var(--space-xl)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px'
       }}>
@@ -230,39 +170,16 @@ export default function ActionCenterPage() {
             <MessageSquare size={24} />
           </div>
           <div>
-            <h3 style={{ margin: '0 0 4px', fontSize: '16px' }}>Automated WhatsApp Bot</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '16px' }}>WhatsApp Messaging (Twilio)</h3>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
-              {waStatus === 'CONNECTED' ? '✅ Connected and ready to send messages!' :
-               waStatus === 'QR_READY' ? '📱 Scan the QR code with your phone WhatsApp' :
-               waStatus === 'AUTHENTICATING' ? '⏳ Starting Chrome browser, please wait 30-60 seconds...' :
-               'Connect WhatsApp to enable 1-click bulk messaging.'}
+              {waConfigured
+                ? '✅ Twilio configured — messages will be sent automatically.'
+                : '⚠️ Twilio not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WA_FROM to backend .env to enable sending.'}
             </p>
           </div>
         </div>
-
-        <div>
-          {waStatus === 'CONNECTED' ? (
-            <button className="btn btn-secondary" onClick={disconnectWhatsApp} disabled={isWaLoading}>
-              <PowerOff size={16} /> Disconnect
-            </button>
-          ) : waStatus === 'QR_READY' && waQrCode ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <img src={waQrCode} alt="WhatsApp QR Code" style={{ width: '120px', height: '120px', borderRadius: '8px', border: '2px solid #25D366', background: '#fff', padding: '4px' }} />
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '100px' }}>
-                Open <strong>WhatsApp</strong> → Linked Devices → Scan this code
-              </div>
-            </div>
-          ) : waStatus === 'AUTHENTICATING' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-muted)', fontSize: '13px' }}>
-              <Loader2 size={24} className="spin" style={{ color: '#25D366' }} />
-              <span>Starting bot...</span>
-            </div>
-          ) : (
-            <button className="btn btn-whatsapp" onClick={connectWhatsApp} disabled={isWaLoading} style={{ boxShadow: '0 4px 12px rgba(37,211,102,0.3)' }}>
-              {isWaLoading ? <Loader2 size={16} className="spin" /> : <QrCode size={16} />}
-              Connect WhatsApp
-            </button>
-          )}
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '6px 14px', borderRadius: '999px', fontWeight: 600 }}>
+          {waConfigured ? '🟢 Active' : '🔴 Not Configured'}
         </div>
       </div>
 
@@ -283,7 +200,7 @@ export default function ActionCenterPage() {
           </button>
         </div>
 
-        {waStatus === 'CONNECTED' && filter !== 'alerts' && displayedItems.filter(i => i.itemType === 'member').length > 0 && (
+        {filter !== 'alerts' && displayedItems.filter(i => i.itemType === 'member').length > 0 && (
           <button className="btn btn-whatsapp" onClick={handleBulkRemind} disabled={isBulkSending} style={{ boxShadow: '0 4px 12px rgba(37,211,102,0.3)' }}>
             {isBulkSending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             Bulk Remind All ({displayedItems.filter(i => i.itemType === 'member').length})
@@ -344,18 +261,9 @@ export default function ActionCenterPage() {
                     <button className="btn btn-success" style={{ flex: 1, gap: '6px', padding: '10px 4px', fontSize: '13px' }} onClick={() => navigate(`/payments/add?member=${item.id}&returnUrl=/action-center`)}>
                       <CreditCard size={16} /> Collect
                     </button>
-                    {waStatus === 'CONNECTED' ? (
-                      <button className="btn btn-whatsapp" style={{ flex: 1, gap: '6px', padding: '10px 4px', fontSize: '13px' }} onClick={() => handleBotRemind(item)}>
+                    <button className="btn btn-whatsapp" style={{ flex: 1, gap: '6px', padding: '10px 4px', fontSize: '13px' }} onClick={() => handleBotRemind(item)}>
                         <Send size={16} /> Remind
-                      </button>
-                    ) : (
-                      <button className="btn btn-secondary" style={{ flex: 1, gap: '6px', padding: '10px 4px', fontSize: '13px' }} onClick={() => {
-                        const defaultGym = { gym_name: user?.gymName || 'Gym', wa_msg_active: 'Hello [Name], this is a reminder.' };
-                        window.open(getWhatsAppLink(item.phone || '', buildWhatsAppMessage(item, user?.gym || defaultGym)), '_blank');
-                      }}>
-                        <MessageSquare size={16} /> WA.me
-                      </button>
-                    )}
+                    </button>
                   </div>
                 </div>
               );

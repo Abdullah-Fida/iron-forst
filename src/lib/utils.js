@@ -39,12 +39,21 @@ export function daysFromNow(dateStr) {
 }
 
 export function calculateExpiryDate(paymentDate, durationMonths, customDays = 0) {
+  if (!paymentDate) return null;
   const d = new Date(paymentDate);
+  let parsedDays = Number(customDays);
+  if (isNaN(parsedDays)) parsedDays = 0;
+  
   const daysToAdd = durationMonths === 'custom' || durationMonths === 0 
-    ? Number(customDays) 
+    ? parsedDays 
     : (Number(durationMonths) * 30);
+    
   d.setDate(d.getDate() + daysToAdd);
-  return d.toISOString().split('T')[0];
+  try {
+    return d.toISOString().split('T')[0];
+  } catch (e) {
+    return paymentDate; // fallback
+  }
 }
 
 export function getMemberStatus(expiryDate) {

@@ -8,6 +8,7 @@ import { useFormDraft } from '../../hooks/useFormDraft';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { THEME_PRESETS, applyTheme, getActiveThemeId } from '../../lib/theme';
 import { getPrinterSettings, savePrinterSettings, printTestPage } from '../../lib/thermalPrinter';
+import { ImportDataSection } from './ImportDataSection';
 import '../../styles/members.css';
 
 export default function SettingsPage() {
@@ -274,6 +275,8 @@ export default function SettingsPage() {
           {isSaving ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Save Messages</>}
         </button>
       </form>
+
+      <ImportDataSection />
 
       <div className="divider" style={{ margin: 'var(--space-xl) 0' }}></div>
 

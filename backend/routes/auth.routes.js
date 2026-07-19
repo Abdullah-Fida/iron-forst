@@ -29,6 +29,7 @@ router.get('/health-check', (req, res) => {
 router.post('/login', async (req, res) => {
   const schema = z.object({ email: z.string().min(1), password: z.string().min(1) });
   const { email, password } = schema.parse(req.body);
+  console.log('Login attempt:', { email, passwordLen: password.length, originalEmail: req.body.email });
 
   const { data: gym, error } = await supabase
     .from('gyms')
