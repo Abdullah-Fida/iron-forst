@@ -8,6 +8,7 @@ router.use(authenticate, requireGymOwner);
 
 const memberSchema = z.object({
   id: z.string().optional(), // allow client-generated offline id
+  membership_id: z.string().optional(),
   name: z.string().min(1).max(100),
   phone: z.string().min(10).max(20),
   gender: z.enum(['male', 'female']).optional(),

@@ -34,6 +34,7 @@ export default function EditMemberPage() {
              if (prev) return prev;
              return { 
                name: m.name, 
+               membership_id: m.membership_id || '',
                phone: m.phone, 
                gender: m.gender || 'male',
                join_date: m.join_date, 
@@ -92,6 +93,7 @@ export default function EditMemberPage() {
       </div>
       <form onSubmit={handleSubmit}>
         <div className="form-group"><label className="form-label">Full Name *</label><input className="form-input" value={form.name || ''} onChange={e => set('name', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Membership ID</label><input className="form-input" value={form.membership_id || ''} onChange={e => set('membership_id', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Phone Number *</label><input className="form-input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} /></div>
         <div className="form-group">
           <label className="form-label">Gender</label>
