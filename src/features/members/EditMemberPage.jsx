@@ -38,7 +38,8 @@ export default function EditMemberPage() {
                gender: m.gender || 'male',
                join_date: m.join_date, 
                emergency_contact: m.emergency_contact || '', 
-               notes: m.notes || '' 
+               notes: m.notes || '',
+               status: m.status || ''
              };
           });
         } else {
@@ -67,6 +68,7 @@ export default function EditMemberPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.phone) { toast.error('Name and phone are required'); return; }
+    if (!form.status) { toast.error('Membership status is required'); return; }
     
     setIsSaving(true);
     try {
@@ -96,6 +98,13 @@ export default function EditMemberPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
             <button type="button" className={`btn ${form.gender === 'male' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => set('gender', 'male')}>Male 👨</button>
             <button type="button" className={`btn ${form.gender === 'female' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => set('gender', 'female')}>Female 👩</button>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Membership Status *</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
+            <button type="button" className={`btn ${form.status === 'active' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => set('status', 'active')}>Active ✅</button>
+            <button type="button" className={`btn ${form.status === 'inactive' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => set('status', 'inactive')}>Inactive ❌</button>
           </div>
         </div>
         <div className="form-group"><label className="form-label">Join Date</label><input className="form-input" type="date" value={form.join_date || ''} onChange={e => set('join_date', e.target.value)} /></div>

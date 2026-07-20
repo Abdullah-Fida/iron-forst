@@ -30,6 +30,7 @@ export default function AddMemberPage() {
       emergency_contact: '',
       fingerprint_id: '',
       notes: '',
+      status: '',
     },
     payForm: {
       amount: '3000',
@@ -113,6 +114,7 @@ export default function AddMemberPage() {
     if (loading) return;
     if (!memberForm.name.trim()) { toast.error('Name is required'); return; }
     if (!memberForm.phone.trim()) { toast.error('Phone number is required'); return; }
+    if (!memberForm.status) { toast.error('Membership status is required'); return; }
     
     setLoading(true);
     try {
@@ -369,6 +371,14 @@ export default function AddMemberPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
                 <button type="button" className={`btn ${memberForm.gender === 'male' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('gender', 'male')}>Male 👨</button>
                 <button type="button" className={`btn ${memberForm.gender === 'female' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('gender', 'female')}>Female 👩</button>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Membership Status *</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
+                <button type="button" className={`btn ${memberForm.status === 'active' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('status', 'active')}>Active ✅</button>
+                <button type="button" className={`btn ${memberForm.status === 'inactive' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('status', 'inactive')}>Inactive ❌</button>
               </div>
             </div>
 
