@@ -24,6 +24,7 @@ export default function AddMemberPage() {
     step: 1,
     memberForm: {
       name: '',
+      membership_id: '',
       phone: '',
       gender: 'male',
       join_date: todayStr(),
@@ -350,6 +351,16 @@ export default function AddMemberPage() {
                 value={memberForm.name || ''}
                 onChange={e => setMember('name', e.target.value)}
                 autoFocus
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Membership ID (Optional)</label>
+              <input
+                className="form-input"
+                placeholder="e.g. 2s3f"
+                value={memberForm.membership_id || ''}
+                onChange={e => setMember('membership_id', e.target.value)}
               />
             </div>
 
