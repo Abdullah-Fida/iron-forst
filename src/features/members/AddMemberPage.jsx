@@ -114,6 +114,7 @@ export default function AddMemberPage() {
     e.preventDefault();
     if (loading) return;
     if (!memberForm.name.trim()) { toast.error('Name is required'); return; }
+    if (!memberForm.membership_id.trim()) { toast.error('Membership ID is required'); return; }
     if (!memberForm.phone.trim()) { toast.error('Phone number is required'); return; }
     if (!memberForm.status) { toast.error('Membership status is required'); return; }
     

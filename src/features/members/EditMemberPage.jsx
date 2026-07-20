@@ -69,6 +69,7 @@ export default function EditMemberPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.phone) { toast.error('Name and phone are required'); return; }
+    if (!form.membership_id) { toast.error('Membership ID is required'); return; }
     if (!form.status) { toast.error('Membership status is required'); return; }
     
     setIsSaving(true);
