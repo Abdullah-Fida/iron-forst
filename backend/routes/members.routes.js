@@ -16,7 +16,7 @@ const memberSchema = z.object({
   emergency_contact: z.string().optional(),
   fingerprint_id: z.string().optional(),
   notes: z.string().optional(),
-  status: z.enum(['active', 'inactive']),
+  status: z.enum(['active', 'inactive']).optional(),
 });
 
 // ── GET /api/members ─── List all members for a gym
@@ -74,7 +74,7 @@ router.post('/', async (req, res) => {
     return res.status(409).json({ success: false, message: 'Member with this name and phone already exists' });
   }
 
-  const { data, error } = await supabase.from('members').insert({ ...body, gym_id: req.user.gym_id, status: body.status }).select().single();
+  const { data, error } = await supabase.from('members').insert({ ...body, gym_id: req.user.gym_id, status: body.status || 'inactive' }).select().single();
   if (error) throw error;
   res.status(201).json({ success: true, data, message: 'Member added successfully' });
 });

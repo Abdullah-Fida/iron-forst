@@ -24,14 +24,12 @@ export default function AddMemberPage() {
     step: 1,
     memberForm: {
       name: '',
-      membership_id: '',
       phone: '',
       gender: 'male',
       join_date: todayStr(),
       emergency_contact: '',
       fingerprint_id: '',
       notes: '',
-      status: '',
     },
     payForm: {
       amount: '3000',
@@ -114,9 +112,7 @@ export default function AddMemberPage() {
     e.preventDefault();
     if (loading) return;
     if (!memberForm.name.trim()) { toast.error('Name is required'); return; }
-    if (!memberForm.membership_id.trim()) { toast.error('Membership ID is required'); return; }
     if (!memberForm.phone.trim()) { toast.error('Phone number is required'); return; }
-    if (!memberForm.status) { toast.error('Membership status is required'); return; }
     
     setLoading(true);
     try {
@@ -358,16 +354,6 @@ export default function AddMemberPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Membership ID</label>
-              <input
-                className="form-input"
-                placeholder="e.g. 2s3f"
-                value={memberForm.membership_id || ''}
-                onChange={e => setMember('membership_id', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
               <label className="form-label">Phone Number *</label>
               <input
                 className="form-input"
@@ -383,14 +369,6 @@ export default function AddMemberPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
                 <button type="button" className={`btn ${memberForm.gender === 'male' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('gender', 'male')}>Male 👨</button>
                 <button type="button" className={`btn ${memberForm.gender === 'female' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('gender', 'female')}>Female 👩</button>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Membership Status *</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
-                <button type="button" className={`btn ${memberForm.status === 'active' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('status', 'active')}>Active ✅</button>
-                <button type="button" className={`btn ${memberForm.status === 'inactive' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setMember('status', 'inactive')}>Inactive ❌</button>
               </div>
             </div>
 
