@@ -58,7 +58,8 @@ export default function MembersListPage() {
       results = results.filter(m => {
         const nameMatch = (m.name || '').toLowerCase().includes(s);
         const phoneMatch = String(m.phone || '').includes(s);
-        return nameMatch || phoneMatch;
+        const idMatch = (m.membership_id || '').toLowerCase().includes(s);
+        return nameMatch || phoneMatch || idMatch;
       });
     }
     
@@ -158,7 +159,7 @@ export default function MembersListPage() {
       {/* Search */}
       <div className="search-bar">
         <Search />
-        <input placeholder="Search by name or phone..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input placeholder="Search by name, phone or ID..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {/* Filter Tabs */}
@@ -225,7 +226,9 @@ export default function MembersListPage() {
                   <div className="member-name">
                     {member.name} {member.gender === 'female' ? '👩' : member.gender === 'male' ? '👨' : ''}
                   </div>
-                  <div className="member-phone">{member.phone}</div>
+                  <div className="member-phone">
+                    {member.phone} {member.membership_id ? `• ID: ${member.membership_id}` : ''}
+                  </div>
                   {member.status === 'trial' && (
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Trial Mode</div>
                   )}

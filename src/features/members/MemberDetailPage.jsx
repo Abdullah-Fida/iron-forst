@@ -240,6 +240,10 @@ export default function MemberDetailPage() {
               <span className="value">{formatDate(member.join_date)}</span>
             </div>
             <div className="detail-item">
+              <span className="label">Membership ID</span>
+              <span className="value">{member.membership_id || 'Not assigned'}</span>
+            </div>
+            <div className="detail-item">
               <span className="label">Emergency Contact</span>
               <span className="value">{member.emergency_contact || 'Not provided'}</span>
             </div>

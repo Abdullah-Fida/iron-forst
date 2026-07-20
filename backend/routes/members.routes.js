@@ -40,7 +40,7 @@ router.get('/', async (req, res) => {
     query = query.eq('gender', gender);
   }
 
-  if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+  if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,membership_id.ilike.%${search}%`);
   if (sort === 'join_date') query = query.order('join_date', { ascending: false });
   else query = query.order('name');
   query = query.range(Number(offset), Number(offset) + Number(limit) - 1);
