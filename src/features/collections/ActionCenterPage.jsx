@@ -14,10 +14,12 @@ export default function ActionCenterPage() {
 
   const [members, setMembers] = useState([]);
   const [staffAlerts, setStaffAlerts] = useState([]);
+  const [sentHistory, setSentHistory] = useState([]);
+  const [gymData, setGymData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
-  // Twilio/Baileys WhatsApp state
+  // Baileys WhatsApp state
   const [waConfigured, setWaConfigured] = useState(false);
   const [waStatus, setWaStatus] = useState('DISCONNECTED');
   const [waQrCode, setWaQrCode] = useState(null);
@@ -38,6 +40,10 @@ export default function ActionCenterPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 0. Fetch gym settings (message templates)
+      const gymRes = await api.get('/gym');
+      if (gymRes.data.success) setGymData(gymRes.data.data);
+
       // 1. Fetch pending fees (Members)
       const pendingRes = await api.get('/payments/pending');
       const rawMembers = pendingRes.data.data || [];
@@ -57,6 +63,11 @@ export default function ActionCenterPage() {
       const apiNotifs = notifRes.data.data || [];
       const staffOnly = apiNotifs.filter(n => n.notification_type && !n.notification_type.includes('member')).map(n => ({ ...n, itemType: 'alert' }));
       setStaffAlerts(staffOnly);
+
+      // 3. Fetch sent message history
+      const sentRes = await api.get('/notifications', { params: { status: 'sent' } });
+      const sentNotifs = sentRes.data.data || [];
+      setSentHistory(sentNotifs);
 
     } catch (err) {
       console.error('Failed to fetch action center data', err);
@@ -125,11 +136,13 @@ export default function ActionCenterPage() {
       total: members.length + staffAlerts.length,
       overdue: overdue.length,
       dueSoon: dueSoon.length,
-      alerts: staffAlerts.length
+      alerts: staffAlerts.length,
+      sent: sentHistory.length
     };
-  }, [members, staffAlerts]);
+  }, [members, staffAlerts, sentHistory]);
 
   const displayedItems = useMemo(() => {
+    if (filter === 'sent') return []; // Sent tab has its own rendering
     let items = [];
     if (filter === 'all' || filter === 'overdue') {
       items = [...items, ...members.filter(m => filter === 'overdue' ? m.status === 'expired' : true)];
@@ -143,31 +156,43 @@ export default function ActionCenterPage() {
     return items;
   }, [members, staffAlerts, filter]);
 
-  // --- Twilio WhatsApp Actions ---
+  // --- WhatsApp Actions ---
+
+  const getGymForMessage = () => {
+    if (gymData) return gymData;
+    return { gym_name: user?.gym_name || 'Gym', wa_msg_active: 'Hello [Name], this is a reminder from [GymName].', wa_msg_expired: 'Hello [Name], your membership at [GymName] has expired. Please renew.', wa_msg_due_soon: 'Hello [Name], your membership at [GymName] expires in [Days] days.' };
+  };
 
   const handleBotRemind = async (member) => {
-    const defaultGym = { gym_name: user?.gymName || 'Gym', wa_msg_active: 'Hello [Name], this is a reminder from [GymName].' };
-    const msg = buildWhatsAppMessage(member, user?.gym || defaultGym);
-    const promise = api.post('/whatsapp/send', { phone: member.phone, message: msg });
-    toast.promise(promise, {
-      loading: `Sending to ${member.name}...`,
-      success: `Message sent to ${member.name}!`,
-      error: (err) => err.response?.data?.error || 'Failed to send message.'
-    });
+    if (!member.phone) { toast.error('This member has no phone number.'); return; }
+    const gym = getGymForMessage();
+    const msg = buildWhatsAppMessage(member, gym);
+    try {
+      await api.post('/whatsapp/send', { phone: member.phone, message: msg });
+      // Log the sent reminder
+      await api.post('/notifications', { member_id: member.id, notification_type: 'wa_reminder', message_template: msg, scheduled_for: new Date().toISOString() });
+      await api.patch(`/notifications/${(await api.get('/notifications', { params: { status: 'pending' } })).data.data?.find(n => n.member_id === member.id && n.notification_type === 'wa_reminder')?.id}/sent`).catch(() => {});
+      toast.success(`Message sent to ${member.name}!`);
+      fetchData(); // Refresh to show in Sent tab
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to send message.');
+    }
   };
 
   const handleBulkRemind = async () => {
     const membersToRemind = displayedItems.filter(i => i.itemType === 'member' && i.phone);
     if (membersToRemind.length === 0) { toast.error('No members with valid phone numbers.'); return; }
-    if (!window.confirm(`Send bulk WhatsApp to ${membersToRemind.length} members via Twilio?`)) return;
+    if (!window.confirm(`Send WhatsApp reminder to ${membersToRemind.length} members?`)) return;
 
     setIsBulkSending(true);
-    const defaultGym = { gym_name: user?.gymName || 'Gym', wa_msg_active: 'Hello [Name], this is a reminder from [GymName].' };
-    const messages = membersToRemind.map(m => ({ phone: m.phone, message: buildWhatsAppMessage(m, user?.gym || defaultGym) }));
+    const gym = getGymForMessage();
+    const messages = membersToRemind.map(m => ({ phone: m.phone, message: buildWhatsAppMessage(m, gym) }));
 
     try {
       await api.post('/whatsapp/send-bulk', { messages });
-      toast.success(`Sending ${messages.length} messages in the background via Twilio!`);
+      toast.success(`Sending ${messages.length} messages in the background!`);
+      // Refresh after a delay to show sent items
+      setTimeout(() => fetchData(), 5000);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to start bulk send.');
     } finally {
@@ -179,7 +204,7 @@ export default function ActionCenterPage() {
     if (!editNotif) return;
     if (waConfigured) {
       const promise = api.post('/whatsapp/send', { phone: editNotif.recipient_phone, message: editMessage });
-      toast.promise(promise, { loading: 'Sending via Twilio...', success: 'Sent!', error: (e) => e.response?.data?.error || 'Failed to send' });
+      toast.promise(promise, { loading: 'Sending via WhatsApp...', success: 'Sent!', error: (e) => e.response?.data?.error || 'Failed to send' });
     } else {
       // Fallback: open wa.me link
       const link = getWhatsAppLink(editNotif.recipient_phone || '', editMessage);
@@ -256,9 +281,12 @@ export default function ActionCenterPage() {
           <button className={`filter-tab ${filter === 'alerts' ? 'active' : ''}`} onClick={() => setFilter('alerts')}>
             Staff & Alerts ({stats.alerts})
           </button>
+          <button className={`filter-tab ${filter === 'sent' ? 'active' : ''}`} onClick={() => setFilter('sent')}>
+            ✅ Message Sent ({stats.sent})
+          </button>
         </div>
 
-        {filter !== 'alerts' && displayedItems.filter(i => i.itemType === 'member').length > 0 && (
+        {filter !== 'alerts' && filter !== 'sent' && displayedItems.filter(i => i.itemType === 'member').length > 0 && (
           <button className="btn btn-whatsapp" onClick={handleBulkRemind} disabled={isBulkSending} style={{ boxShadow: '0 4px 12px rgba(37,211,102,0.3)' }}>
             {isBulkSending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             Bulk Remind All ({displayedItems.filter(i => i.itemType === 'member').length})
@@ -272,6 +300,47 @@ export default function ActionCenterPage() {
           <Loader2 className="spin" size={48} style={{ color: 'var(--accent-primary)', marginBottom: '16px' }} />
           <p style={{ fontWeight: '600' }}>Loading action items...</p>
         </div>
+      ) : filter === 'sent' ? (
+        /* ── Message Sent Tab ── */
+        sentHistory.length === 0 ? (
+          <div className="empty-state" style={{ background: 'var(--bg-secondary)', borderRadius: '24px', border: '1px solid var(--border-color)', padding: '60px 20px' }}>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--bg-tertiary)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+              <MessageSquare size={40} />
+            </div>
+            <h3>No Messages Sent Yet</h3>
+            <p>Reminders you send will appear here.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+            {sentHistory.map(notif => {
+              const member = notif.members;
+              return (
+                <div key={`s_${notif.id}`} className="card" style={{ padding: '20px', borderLeft: '4px solid #25D366', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div className="avatar" style={{ background: 'rgba(37,211,102,0.15)', color: '#25D366', width: '48px', height: '48px', borderRadius: '14px' }}>
+                      {member ? getInitials(member.name) : <MessageSquare size={20} />}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <h4 style={{ fontSize: '16px', fontWeight: '800', margin: '0 0 4px', color: 'var(--text-primary)' }}>{member?.name || 'Unknown'}</h4>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        {member?.phone || '—'} • Sent {formatDate(notif.sent_at)}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '11px', background: 'rgba(37,211,102,0.15)', color: '#25D366', padding: '4px 10px', borderRadius: '999px', fontWeight: 700 }}>✓ Sent</div>
+                  </div>
+                  <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '10px', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', whiteSpace: 'pre-wrap' }}>
+                    {notif.message_template}
+                  </div>
+                  {member?.phone && (
+                    <button className="btn btn-whatsapp" style={{ gap: '6px', padding: '10px 4px', fontSize: '13px' }} onClick={() => handleBotRemind({ ...member, status: calculateMemberStatus(member) })}>
+                      <Send size={16} /> Send Again
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
       ) : displayedItems.length === 0 ? (
         <div className="empty-state" style={{ background: 'var(--bg-secondary)', borderRadius: '24px', border: '1px solid var(--border-color)', padding: '60px 20px' }}>
           <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--status-active-bg)', color: 'var(--status-active)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
