@@ -44,7 +44,55 @@ router.post('/send', async (req, res) => {
       res.json({ success: true, message: 'Message sent', sid: result.sid });
     }
   } catch (err) {
+    console.error('[WhatsApp Send Error]', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /api/whatsapp/test ─── Test send with full debug output
+router.post('/test', async (req, res) => {
+  const { phone, message } = req.body;
+  const testMessage = message || 'This is a test message from Iron Fost Gym System.';
+  
+  if (!phone) {
+    return res.status(400).json({ success: false, error: 'Phone number is required' });
+  }
+
+  const gymId = req.user.gym_id;
+  const debug = { phone, gymId, steps: [] };
+
+  try {
+    // Step 1: Check session
+    const session = whatsappService.sessions.get(gymId);
+    debug.steps.push({ step: 'session_check', status: session?.status || 'NO_SESSION', hasSocket: !!session?.socket });
+
+    if (!session || session.status !== 'CONNECTED') {
+      return res.json({ success: false, error: 'Not connected', debug });
+    }
+
+    // Step 2: Format number
+    let formatted = String(phone).replace(/[^0-9]/g, '');
+    if (formatted.startsWith('0') && formatted.length === 11) formatted = `92${formatted.slice(1)}`;
+    else if (formatted.length === 10 && !formatted.startsWith('92')) formatted = `92${formatted}`;
+    const jid = `${formatted}@s.whatsapp.net`;
+    debug.steps.push({ step: 'format', original: phone, formatted, jid });
+
+    // Step 3: Check if on WhatsApp
+    try {
+      const [exists] = await session.socket.onWhatsApp(jid);
+      debug.steps.push({ step: 'onWhatsApp', result: exists });
+    } catch (e) {
+      debug.steps.push({ step: 'onWhatsApp', error: e.message });
+    }
+
+    // Step 4: Try to send
+    const msg = await session.socket.sendMessage(jid, { text: testMessage });
+    debug.steps.push({ step: 'sendMessage', success: true, messageId: msg?.key?.id });
+
+    res.json({ success: true, message: 'Test message sent!', debug });
+  } catch (err) {
+    debug.steps.push({ step: 'error', message: err.message, stack: err.stack?.split('\n').slice(0, 3) });
+    res.json({ success: false, error: err.message, debug });
   }
 });
 
