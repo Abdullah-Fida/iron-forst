@@ -29,8 +29,14 @@ class WhatsAppService {
         this.sessions.set(gymId, sessionData);
 
         const startSocket = async () => {
-            const { version } = await fetchLatestBaileysVersion();
-            console.log(`[WhatsApp ${gymId}] Starting with WA version ${version.join('.')}`);
+            let version = [2, 3000, 1015901307]; // Safe fallback version
+            try {
+                const res = await fetchLatestBaileysVersion();
+                version = res.version;
+                console.log(`[WhatsApp ${gymId}] Starting with WA version ${version.join('.')}`);
+            } catch (err) {
+                console.error(`[WhatsApp ${gymId}] Failed to fetch version, using fallback:`, err.message);
+            }
 
             const sock = makeWASocket({
                 version,
@@ -40,9 +46,9 @@ class WhatsAppService {
                 browser: ['Ubuntu', 'Chrome', '20.0.04'],
             });
 
-            sessionData.socket = sock;
+                sessionData.socket = sock;
 
-            sock.ev.on('creds.update', saveCreds);
+                sock.ev.on('creds.update', saveCreds);
 
             sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
