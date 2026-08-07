@@ -37,7 +37,7 @@ class WhatsAppService {
                 auth: state,
                 logger: this.logger,
                 printQRInTerminal: false,
-                // Using Baileys default browser config to avoid 'Invalid QR'
+                browser: ['Ubuntu', 'Chrome', '20.0.04'],
             });
 
             sessionData.socket = sock;
