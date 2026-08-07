@@ -21,7 +21,6 @@ const paymentsRoutes = require('./routes/payments.routes');
 const expensesRoutes = require('./routes/expenses.routes');
 const staffRoutes = require('./routes/staff.routes');
 const attendanceRoutes = require('./routes/attendance.routes');
-const logsRoutes = require('./routes/logs.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const draftsRoutes = require('./routes/drafts.routes');
@@ -147,8 +146,8 @@ if (process.env.NODE_ENV !== 'test') {
 
     // ── Render Keep-Alive Ping ────────────
     // Render free tier spins down after 15 mins of inactivity.
-    // This pings the server's own health endpoint every 14 minutes.
-    const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes
+    // This pings the server's own health endpoint every 10 minutes.
+    const PING_INTERVAL = 10 * 60 * 1000; // 10 minutes
     const selfUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
     
     setInterval(() => {
