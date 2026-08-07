@@ -268,7 +268,26 @@ router.delete('/:id', async (req, res) => {
 
   const { error } = await supabase.from('payments').delete().eq('id', req.params.id).eq('gym_id', req.user.gym_id);
   if (error) throw error;
-  res.json({ success: true, message: 'Payment deleted' });
+
+  // Recalculate the member's latest_expiry and status
+  if (payment && payment.member_id) {
+    const { data: remaining } = await supabase.from('payments')
+      .select('expiry_date, payment_date')
+      .eq('member_id', payment.member_id);
+    
+    let newExpiry = null;
+    let newStatus = 'inactive';
+
+    if (remaining && remaining.length > 0) {
+      const sorted = remaining.sort((a,b) => new Date(b.expiry_date || b.payment_date) - new Date(a.expiry_date || a.payment_date));
+      newExpiry = sorted[0].expiry_date || sorted[0].payment_date;
+      newStatus = 'active'; 
+    }
+
+    await supabase.from('members').update({ latest_expiry: newExpiry, status: newStatus }).eq('id', payment.member_id);
+  }
+
+  res.json({ success: true, message: 'Payment deleted and expiry recalculated' });
 });
 
 // ── GET /api/payments/revenue/:year ─── Monthly revenue summary

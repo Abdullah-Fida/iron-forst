@@ -169,6 +169,29 @@ export default function MemberDetailPage() {
     }
   };
 
+  const handleDeletePayment = async (e, paymentObj) => {
+    e.stopPropagation();
+    const isConfirmed = await confirm({
+      title: 'Delete Payment',
+      message: `Are you sure you want to delete this payment of ${formatPKR(paymentObj.amount)}? This will subtract it from revenue and revert the member's expiry date.`,
+      confirmText: 'Delete',
+      type: 'danger'
+    });
+    if (!isConfirmed) return;
+
+    try {
+      await api.delete(`/payments/${paymentObj.id}`);
+      toast.success('Payment deleted successfully');
+      setMember(prev => ({
+        ...prev,
+        payments: prev.payments.filter(p => p.id !== paymentObj.id),
+        latest_expiry: null // Force local recalculation
+      }));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete payment');
+    }
+  };
+
   return (
     <div className="page-container">
       {/* Top Nav */}
@@ -318,9 +341,12 @@ export default function MemberDetailPage() {
                   <div className="history-title">{formatDate(p.payment_date)}</div>
                   <div className="history-sub">{p.plan_duration_months} month plan • {p.payment_method}</div>
                 </div>
-                <div className="history-right">
+                <div className="history-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
                   <div className="history-amount">{formatPKR(p.amount)}</div>
-                  <button className="btn-text-only" onClick={() => printReceipt(p)}><Printer size={14} /> Print</button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn-text-only" onClick={() => printReceipt(p)}><Printer size={14} /> Print</button>
+                    <button className="btn-text-only" style={{ color: 'var(--status-danger)' }} onClick={(e) => handleDeletePayment(e, p)}><Trash2 size={14} /> Delete</button>
+                  </div>
                 </div>
               </div>
             ))}
