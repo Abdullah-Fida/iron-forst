@@ -21,11 +21,15 @@ const paymentsRoutes = require('./routes/payments.routes');
 const expensesRoutes = require('./routes/expenses.routes');
 const staffRoutes = require('./routes/staff.routes');
 const attendanceRoutes = require('./routes/attendance.routes');
+const logsRoutes = require('./routes/logs.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const draftsRoutes = require('./routes/drafts.routes');
 const liveRoutes = require('./routes/live.routes');
 const whatsappRoutes = require('./routes/whatsapp.routes');
+
+// Initialize background cron jobs
+require('./services/cronService');
 
 // Middleware
 const { errorHandler } = require('./middleware/errorHandler');

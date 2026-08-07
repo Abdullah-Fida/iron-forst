@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Send, CreditCard, Clock, Bell, CheckCircle2, Loader2, MessageSquare } from 'lucide-react';
+import { AlertTriangle, Send, CreditCard, Clock, Bell, CheckCircle2, Loader2, MessageSquare, X } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -17,8 +17,11 @@ export default function ActionCenterPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
-  // Twilio WhatsApp state
+  // Twilio/Baileys WhatsApp state
   const [waConfigured, setWaConfigured] = useState(false);
+  const [waStatus, setWaStatus] = useState('DISCONNECTED');
+  const [waQrCode, setWaQrCode] = useState(null);
+  const [showQrModal, setShowQrModal] = useState(false);
   const [isBulkSending, setIsBulkSending] = useState(false);
 
   // WhatsApp edit state for Staff Alerts
@@ -60,6 +63,8 @@ export default function ActionCenterPage() {
     try {
       const res = await api.get('/whatsapp/status');
       if (res.data.success) {
+        setWaStatus(res.data.data.status);
+        setWaQrCode(res.data.data.qrCode);
         setWaConfigured(res.data.data.status === 'CONNECTED');
       }
     } catch (err) {
@@ -67,9 +72,25 @@ export default function ActionCenterPage() {
     }
   };
 
+  const handleWaLogout = async () => {
+    if (!window.confirm('Disconnect WhatsApp?')) return;
+    try {
+      await api.post('/whatsapp/logout');
+      setWaConfigured(false);
+      setWaStatus('DISCONNECTED');
+      toast.success('WhatsApp disconnected');
+    } catch (err) {}
+  };
+
   useEffect(() => {
     fetchData();
     fetchWaStatus();
+
+    const interval = setInterval(() => {
+      fetchWaStatus();
+    }, 4000); // Poll for QR updates
+
+    return () => clearInterval(interval);
   }, []);
 
   const stats = useMemo(() => {
@@ -158,7 +179,7 @@ export default function ActionCenterPage() {
         </div>
       </div>
 
-      {/* ── Twilio WhatsApp Status Banner ── */}
+      {/* ── Baileys WhatsApp Status Banner ── */}
       <div style={{
         background: waConfigured ? 'var(--status-active-bg)' : 'var(--bg-secondary)',
         border: `1px solid ${waConfigured ? 'var(--status-active)' : 'var(--border-color)'}`,
@@ -170,16 +191,26 @@ export default function ActionCenterPage() {
             <MessageSquare size={24} />
           </div>
           <div>
-            <h3 style={{ margin: '0 0 4px', fontSize: '16px' }}>WhatsApp Messaging (Twilio)</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '16px' }}>WhatsApp Integration</h3>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
               {waConfigured
-                ? '✅ Twilio configured — messages will be sent automatically.'
-                : '⚠️ Twilio not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WA_FROM to backend .env to enable sending.'}
+                ? '✅ Connected — messages will be sent automatically.'
+                : '⚠️ Disconnected. Please scan the QR code to link your phone.'}
             </p>
           </div>
         </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '6px 14px', borderRadius: '999px', fontWeight: 600 }}>
-          {waConfigured ? '🟢 Active' : '🔴 Not Configured'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {!waConfigured && (waStatus === 'NEEDS_QR' || waStatus === 'INITIALIZING') && (
+            <button className="btn btn-primary btn-sm" onClick={() => setShowQrModal(true)}>
+              {waStatus === 'INITIALIZING' ? 'Loading QR...' : 'Scan QR Code'}
+            </button>
+          )}
+          {waConfigured && (
+             <button className="btn btn-secondary btn-sm" onClick={handleWaLogout}>Disconnect</button>
+          )}
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '6px 14px', borderRadius: '999px', fontWeight: 600 }}>
+            {waConfigured ? '🟢 Active' : (waStatus === 'INITIALIZING' ? '🟡 Starting...' : '🔴 Disconnected')}
+          </div>
         </div>
       </div>
 
@@ -337,6 +368,36 @@ export default function ActionCenterPage() {
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setEditNotif(null)}>Cancel</button>
               <button className="btn btn-whatsapp" style={{ flex: 2 }} onClick={handleAlertSend}><Send size={16} /> Send WhatsApp</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── QR Code Scan Modal ── */}
+      {showQrModal && (
+        <div className="modal-backdrop" onClick={() => setShowQrModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Link WhatsApp</h2>
+              <button className="modal-close" onClick={() => setShowQrModal(false)}><X size={20} /></button>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '24px' }}>
+              Open WhatsApp on your phone ➔ Linked Devices ➔ Link a Device ➔ Scan this code.
+            </p>
+            <div style={{ background: '#fff', padding: '16px', borderRadius: '16px', display: 'inline-block', minHeight: '256px', minWidth: '256px' }}>
+              {waQrCode ? (
+                <img src={waQrCode} alt="WhatsApp QR Code" style={{ width: '256px', height: '256px' }} />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '256px', color: 'var(--text-muted)' }}>
+                  <Loader2 className="spin" size={32} style={{ marginBottom: '16px' }} />
+                  <p>Generating QR Code...</p>
+                </div>
+              )}
+            </div>
+            {waConfigured && (
+              <div style={{ marginTop: '24px', color: 'var(--status-active)', fontWeight: 'bold' }}>
+                ✅ Successfully Connected!
+              </div>
+            )}
           </div>
         </div>
       )}

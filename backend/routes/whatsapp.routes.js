@@ -6,10 +6,16 @@ const whatsappService = require('../services/whatsappService');
 // All routes require authentication
 router.use(authenticate);
 
-// ── GET /api/whatsapp/status ─── Check if Twilio is configured and ready
-router.get('/status', (req, res) => {
-  const status = whatsappService.getStatus();
+// ── GET /api/whatsapp/status ─── Check Baileys connection status
+router.get('/status', async (req, res) => {
+  const status = await whatsappService.getStatus(req.user.gym_id);
   res.json({ success: true, data: status });
+});
+
+// ── POST /api/whatsapp/logout ─── Disconnect Baileys session
+router.post('/logout', async (req, res) => {
+  await whatsappService.logout(req.user.gym_id);
+  res.json({ success: true, message: 'Logged out successfully' });
 });
 
 // ── POST /api/whatsapp/send ─── Send a single WhatsApp message
@@ -21,11 +27,9 @@ router.post('/send', async (req, res) => {
   }
 
   try {
-    const result = await whatsappService.sendMessage(phone, message);
+    const result = await whatsappService.sendMessage(req.user.gym_id, phone, message);
     if (result.success) {
       res.json({ success: true, message: 'Message sent', sid: result.sid });
-    } else {
-      res.status(400).json({ success: false, error: result.message });
     }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -41,15 +45,15 @@ router.post('/send-bulk', async (req, res) => {
   }
 
   // Fire and forget — respond immediately so the UI doesn't hang
-  whatsappService.sendBulkMessages(messages).then(results => {
-    console.log('[WhatsApp] Bulk send completed:', results);
+  whatsappService.sendBulkMessages(req.user.gym_id, messages).then(results => {
+    console.log(`[WhatsApp ${req.user.gym_id}] Bulk send completed:`, results);
   }).catch(err => {
-    console.error('[WhatsApp] Bulk send error:', err.message);
+    console.error(`[WhatsApp ${req.user.gym_id}] Bulk send error:`, err.message);
   });
 
   res.json({
     success: true,
-    message: `Sending ${messages.length} message(s) in the background via Twilio.`
+    message: `Sending ${messages.length} message(s) in the background via WhatsApp.`
   });
 });
 

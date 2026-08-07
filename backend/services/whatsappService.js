@@ -1,178 +1,158 @@
-/**
- * Iron Fost — Twilio WhatsApp Service
- *
- * Replaces whatsapp-web.js (headless Chrome / QR scan approach) with
- * Twilio's reliable WhatsApp Business API.
- *
- * Required .env variables:
- *   TWILIO_ACCOUNT_SID   — from console.twilio.com → Account Info
- *   TWILIO_AUTH_TOKEN    — from console.twilio.com → Account Info
- *   TWILIO_WA_FROM       — your Twilio WhatsApp sender, e.g. whatsapp:+14155238886
- *                          (use the Sandbox number for testing, or your approved number for production)
- *
- * Twilio WhatsApp Sandbox (free testing):
- *   1. Go to console.twilio.com → Messaging → Try it out → Send a WhatsApp message
- *   2. Have the recipient send the join code to the sandbox number ONCE to opt-in
- *   3. After that, you can freely message them
- *
- * Production (approved number):
- *   1. Apply for a WhatsApp Business Profile in the Twilio console
- *   2. Once approved, set TWILIO_WA_FROM to your approved number
- */
+const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
+const { useSupabaseAuthState } = require('./whatsappAuthAdapter');
+const QRCode = require('qrcode');
+const { Boom } = require('@hapi/boom');
+const pino = require('pino');
 
-const twilio = require('twilio');
-
-// ─── Formatting helpers ─────────────────────────────────────────────────────
-
-/**
- * Converts any Pakistan phone number format to international E.164 format.
- * - 03001234567  → +923001234567
- * - 3001234567   → +923001234567
- * - 923001234567 → +923001234567
- */
-function formatPakistaniPhone(rawPhone) {
-  let phone = String(rawPhone || '').replace(/[^0-9]/g, '');
-
-  if (phone.startsWith('92') && phone.length === 12) {
-    return `+${phone}`;
-  }
-  if (phone.startsWith('0') && phone.length === 11) {
-    return `+92${phone.slice(1)}`;
-  }
-  if (phone.length === 10 && !phone.startsWith('0') && !phone.startsWith('92')) {
-    return `+92${phone}`;
-  }
-  // Fallback: prepend + if already has country code
-  if (phone.length >= 12) return `+${phone}`;
-
-  return null; // Invalid
-}
-
-// ─── Service class ──────────────────────────────────────────────────────────
-
-class TwilioWhatsAppService {
-  constructor() {
-    this.client = null;
-    this.configured = false;
-    this._initClient();
-  }
-
-  _initClient() {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-
-    if (!sid || !token || sid.startsWith('YOUR_') || token.startsWith('YOUR_')) {
-      console.warn('⚠️  Twilio credentials not set. WhatsApp sending will be disabled until TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are added to .env');
-      return;
+class WhatsAppService {
+    constructor() {
+        this.sessions = new Map(); // gymId -> { socket, qr, status, clearAll }
+        this.logger = pino({ level: 'silent' });
     }
 
-    try {
-      this.client = twilio(sid, token);
-      this.configured = true;
-      console.log('✅ Twilio WhatsApp Service initialized.');
-    } catch (err) {
-      console.error('❌ Failed to initialize Twilio client:', err.message);
-    }
-  }
-
-  /**
-   * Returns the current service status.
-   * "CONNECTED" if Twilio credentials are set, "DISCONNECTED" otherwise.
-   */
-  getStatus() {
-    return {
-      status: this.configured ? 'CONNECTED' : 'DISCONNECTED',
-      provider: 'twilio',
-      qrCode: null // No QR needed with Twilio
-    };
-  }
-
-  /**
-   * Sends a single WhatsApp message via Twilio.
-   * @param {string} phone - Recipient's phone number (any Pakistani format)
-   * @param {string} message - Text body to send
-   * @returns {{ success: boolean, message?: string, sid?: string }}
-   */
-  async sendMessage(phone, message) {
-    if (!this.configured || !this.client) {
-      throw new Error('Twilio is not configured. Please set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WA_FROM in your .env file.');
-    }
-
-    if (!phone) throw new Error('Phone number is required.');
-    if (!message) throw new Error('Message body is required.');
-
-    const fromNumber = process.env.TWILIO_WA_FROM;
-    if (!fromNumber) {
-      throw new Error('TWILIO_WA_FROM is not set in .env. Example: whatsapp:+14155238886');
-    }
-
-    const formatted = formatPakistaniPhone(phone);
-    if (!formatted) {
-      console.warn(`⚠️  Invalid phone number skipped: "${phone}"`);
-      return { success: false, message: `Invalid phone number: ${phone}` };
-    }
-
-    try {
-      const msg = await this.client.messages.create({
-        from: fromNumber,                  // e.g. "whatsapp:+14155238886"
-        to: `whatsapp:${formatted}`,        // e.g. "whatsapp:+923001234567"
-        body: message,
-      });
-
-      console.log(`✉️  WhatsApp sent to ${formatted} | SID: ${msg.sid} | Status: ${msg.status}`);
-      return { success: true, sid: msg.sid, status: msg.status };
-    } catch (err) {
-      console.error(`❌ Failed to send WhatsApp to ${formatted}:`, err.message);
-
-      // Surface friendly Twilio error codes to the caller
-      const userMessage = err.code === 63007
-        ? 'Recipient has not opted in to the Twilio WhatsApp Sandbox. They must send the join code first.'
-        : err.code === 21608
-        ? 'The recipient is not a WhatsApp user or is not reachable.'
-        : err.message;
-
-      throw new Error(userMessage);
-    }
-  }
-
-  /**
-   * Sends bulk WhatsApp messages with a configurable delay between each.
-   * Runs sequentially to comply with Twilio rate limits.
-   * @param {{ phone: string, message: string }[]} messages
-   * @param {number} delayMs - Delay between each message (default: 1500ms)
-   */
-  async sendBulkMessages(messages, delayMs = 1500) {
-    if (!this.configured || !this.client) {
-      throw new Error('Twilio is not configured.');
-    }
-
-    console.log(`🚀 Twilio bulk send starting — ${messages.length} message(s)...`);
-    const results = { successful: 0, failed: 0, skipped: 0, errors: [] };
-
-    for (let i = 0; i < messages.length; i++) {
-      const { phone, message } = messages[i];
-      try {
-        const res = await this.sendMessage(phone, message);
-        if (res.success) {
-          results.successful++;
-        } else {
-          results.skipped++;
+    async getSession(gymId) {
+        if (!this.sessions.has(gymId)) {
+            await this.initSession(gymId);
         }
-      } catch (err) {
-        results.failed++;
-        results.errors.push({ phone, error: err.message });
-        console.error(`  ✗ Failed for ${phone}: ${err.message}`);
-      }
-
-      // Pause between sends to avoid rate-limiting
-      if (i < messages.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
+        return this.sessions.get(gymId);
     }
 
-    console.log(`🏁 Bulk send done. ✓ ${results.successful} sent | ✗ ${results.failed} failed | ⚠ ${results.skipped} skipped`);
-    return results;
-  }
+    async initSession(gymId) {
+        const { state, saveCreds, clearAll } = await useSupabaseAuthState(gymId);
+        
+        let sessionData = { 
+            socket: null, 
+            qr: null, 
+            status: 'INITIALIZING',
+            clearAll
+        };
+        this.sessions.set(gymId, sessionData);
+
+        const startSocket = () => {
+            const sock = makeWASocket({
+                auth: state,
+                logger: this.logger,
+                printQRInTerminal: false,
+                browser: ['IronFost System', 'Chrome', '1.0.0'],
+            });
+
+            sessionData.socket = sock;
+
+            sock.ev.on('creds.update', saveCreds);
+
+            sock.ev.on('connection.update', async (update) => {
+                const { connection, lastDisconnect, qr } = update;
+                
+                if (qr) {
+                    sessionData.qr = await QRCode.toDataURL(qr);
+                    sessionData.status = 'NEEDS_QR';
+                }
+
+                if (connection === 'close') {
+                    const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+                    
+                    if (shouldReconnect) {
+                        sessionData.status = 'RECONNECTING';
+                        console.log(`[WhatsApp ${gymId}] Connection closed, reconnecting...`);
+                        startSocket();
+                    } else {
+                        console.log(`[WhatsApp ${gymId}] Logged out. Clearing session.`);
+                        sessionData.status = 'DISCONNECTED';
+                        sessionData.qr = null;
+                        sessionData.socket = null;
+                        await clearAll();
+                    }
+                } else if (connection === 'open') {
+                    console.log(`[WhatsApp ${gymId}] Connected successfully!`);
+                    sessionData.status = 'CONNECTED';
+                    sessionData.qr = null;
+                }
+            });
+        };
+
+        startSocket();
+    }
+
+    async getStatus(gymId) {
+        const session = await this.getSession(gymId);
+        return {
+            status: session.status,
+            qrCode: session.qr,
+            provider: 'baileys'
+        };
+    }
+
+    async logout(gymId) {
+        const session = this.sessions.get(gymId);
+        if (session) {
+            if (session.socket) {
+                // This triggers the 'close' event with loggedOut reason
+                session.socket.logout();
+            } else {
+                await session.clearAll();
+            }
+            this.sessions.delete(gymId);
+        }
+        return { success: true };
+    }
+
+    async sendMessage(gymId, phone, message) {
+        const session = await this.getSession(gymId);
+        
+        if (session.status !== 'CONNECTED' || !session.socket) {
+            throw new Error('WhatsApp is not connected. Please scan the QR code in the Action Center.');
+        }
+
+        // Format phone to standard WhatsApp ID
+        let formatted = String(phone).replace(/[^0-9]/g, '');
+        if (formatted.startsWith('0') && formatted.length === 11) {
+            formatted = `92${formatted.slice(1)}`;
+        } else if (formatted.length === 10 && !formatted.startsWith('92')) {
+            formatted = `92${formatted}`;
+        }
+        const jid = `${formatted}@s.whatsapp.net`;
+
+        // Check if number is on WhatsApp
+        const [result] = await session.socket.onWhatsApp(jid);
+        if (!result || !result.exists) {
+            throw new Error('This number is not registered on WhatsApp.');
+        }
+
+        const msg = await session.socket.sendMessage(jid, { text: message });
+        return { success: true, sid: msg?.key?.id };
+    }
+
+    async sendBulkMessages(gymId, messages, delayMs = 3000) {
+        const results = { successful: 0, failed: 0, skipped: 0, errors: [] };
+        const session = await this.getSession(gymId);
+        
+        if (session.status !== 'CONNECTED' || !session.socket) {
+            console.error(`[WhatsApp ${gymId}] Cannot send bulk, not connected.`);
+            return results;
+        }
+
+        console.log(`[WhatsApp ${gymId}] Bulk send starting - ${messages.length} messages.`);
+
+        for (let i = 0; i < messages.length; i++) {
+            const { phone, message } = messages[i];
+            try {
+                await this.sendMessage(gymId, phone, message);
+                results.successful++;
+            } catch (err) {
+                results.failed++;
+                results.errors.push({ phone, error: err.message });
+                console.error(`  ✗ Failed for ${phone}: ${err.message}`);
+            }
+
+            // Pause between sends to avoid rate-limiting
+            if (i < messages.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+        
+        console.log(`[WhatsApp ${gymId}] Bulk send done. ✓ ${results.successful} sent | ✗ ${results.failed} failed`);
+        return results;
+    }
 }
 
-module.exports = new TwilioWhatsAppService();
+module.exports = new WhatsAppService();
