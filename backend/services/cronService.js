@@ -1,9 +1,6 @@
 const cron = require('node-cron');
 const { supabase } = require('../db/supabase');
 const whatsappService = require('./whatsappService');
-const { buildWhatsAppMessage, daysFromNow } = require('../../src/lib/utils'); 
-// Wait, we can't easily require frontend utils from the backend.
-// Let's implement a simple message builder here or fetch the gym template.
 
 class CronService {
     constructor() {
@@ -84,8 +81,8 @@ class CronService {
 
         const messages = membersToNotify.map(m => {
             let msg = template
-                .replace(/\\[Name\\]/g, m.name)
-                .replace(/\\[GymName\\]/g, gym.gym_name || 'Our Gym');
+                .replace(/\[Name\]/g, m.name)
+                .replace(/\[GymName\]/g, gym.gym_name || 'Our Gym');
             return { phone: m.phone, message: msg, member: m };
         });
 

@@ -1,12 +1,11 @@
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { useSupabaseAuthState } = require('./whatsappAuthAdapter');
 const QRCode = require('qrcode');
-const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 
 class WhatsAppService {
     constructor() {
-        this.sessions = new Map(); // gymId -> { socket, qr, status, clearAll }
+        this.sessions = new Map();
         this.logger = pino({ level: 'silent' });
     }
 
@@ -18,69 +17,92 @@ class WhatsAppService {
     }
 
     async initSession(gymId) {
+        // Prevent double-init
+        if (this.sessions.has(gymId)) return;
+
         const { state, saveCreds, clearAll } = await useSupabaseAuthState(gymId);
-        
-        let sessionData = { 
-            socket: null, 
-            qr: null, 
+
+        const sessionData = {
+            socket: null,
+            qr: null,
             status: 'INITIALIZING',
             clearAll
         };
         this.sessions.set(gymId, sessionData);
 
         const startSocket = async () => {
-            let version = [2, 3000, 1015901307]; // Safe fallback version
+            // Fetch the latest WA web version (with fallback)
+            let version;
             try {
                 const res = await fetchLatestBaileysVersion();
                 version = res.version;
-                console.log(`[WhatsApp ${gymId}] Starting with WA version ${version.join('.')}`);
+                console.log(`[WhatsApp ${gymId}] Using WA version ${version.join('.')}`);
             } catch (err) {
-                console.error(`[WhatsApp ${gymId}] Failed to fetch version, using fallback:`, err.message);
+                console.warn(`[WhatsApp ${gymId}] Version fetch failed, using library default`);
+                version = undefined; // Baileys will use its built-in default
             }
 
-            const sock = makeWASocket({
-                version,
+            const socketConfig = {
                 auth: state,
                 logger: this.logger,
                 printQRInTerminal: false,
                 browser: ['Ubuntu', 'Chrome', '20.0.04'],
-            });
+            };
+            if (version) socketConfig.version = version;
 
-                sessionData.socket = sock;
+            const sock = makeWASocket(socketConfig);
+            sessionData.socket = sock;
 
-                sock.ev.on('creds.update', saveCreds);
+            // Save credentials whenever they update
+            sock.ev.on('creds.update', saveCreds);
 
+            // Handle connection lifecycle
             sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
-                
+
                 if (qr) {
-                    sessionData.qr = await QRCode.toDataURL(qr);
-                    sessionData.status = 'NEEDS_QR';
+                    try {
+                        sessionData.qr = await QRCode.toDataURL(qr);
+                        sessionData.status = 'NEEDS_QR';
+                        console.log(`[WhatsApp ${gymId}] New QR code generated`);
+                    } catch (e) {
+                        console.error(`[WhatsApp ${gymId}] QR generation error:`, e.message);
+                    }
                 }
 
                 if (connection === 'close') {
-                    const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-                    
-                    if (shouldReconnect) {
-                        sessionData.status = 'RECONNECTING';
-                        console.log(`[WhatsApp ${gymId}] Connection closed, reconnecting...`);
-                        startSocket();
-                    } else {
-                        console.log(`[WhatsApp ${gymId}] Logged out. Clearing session.`);
+                    // Safely extract the status code from the disconnect error
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    const loggedOut = statusCode === DisconnectReason.loggedOut;
+
+                    console.log(`[WhatsApp ${gymId}] Connection closed. Status: ${statusCode}, LoggedOut: ${loggedOut}`);
+
+                    if (loggedOut) {
+                        // User intentionally logged out — wipe everything
                         sessionData.status = 'DISCONNECTED';
                         sessionData.qr = null;
                         sessionData.socket = null;
                         await clearAll();
+                        console.log(`[WhatsApp ${gymId}] Session cleared after logout.`);
+                    } else {
+                        // Unexpected disconnect — try to reconnect
+                        sessionData.status = 'RECONNECTING';
+                        console.log(`[WhatsApp ${gymId}] Reconnecting in 3s...`);
+                        setTimeout(() => startSocket(), 3000);
                     }
                 } else if (connection === 'open') {
-                    console.log(`[WhatsApp ${gymId}] Connected successfully!`);
+                    console.log(`[WhatsApp ${gymId}] ✅ Connected successfully!`);
                     sessionData.status = 'CONNECTED';
                     sessionData.qr = null;
                 }
             });
         };
 
-        startSocket();
+        // Start without awaiting so it doesn't block the server boot
+        startSocket().catch(err => {
+            console.error(`[WhatsApp ${gymId}] Init failed:`, err.message);
+            sessionData.status = 'DISCONNECTED';
+        });
     }
 
     async getStatus(gymId) {
@@ -95,12 +117,15 @@ class WhatsAppService {
     async logout(gymId) {
         const session = this.sessions.get(gymId);
         if (session) {
-            if (session.socket) {
-                // This triggers the 'close' event with loggedOut reason
-                session.socket.logout();
-            } else {
-                await session.clearAll();
+            try {
+                if (session.socket) {
+                    await session.socket.logout();
+                }
+            } catch (e) {
+                console.warn(`[WhatsApp ${gymId}] Logout error (non-fatal):`, e.message);
             }
+            // Always clean up regardless
+            try { await session.clearAll(); } catch (e) {}
             this.sessions.delete(gymId);
         }
         return { success: true };
@@ -108,7 +133,7 @@ class WhatsAppService {
 
     async sendMessage(gymId, phone, message) {
         const session = await this.getSession(gymId);
-        
+
         if (session.status !== 'CONNECTED' || !session.socket) {
             throw new Error('WhatsApp is not connected. Please scan the QR code in the Action Center.');
         }
@@ -135,7 +160,7 @@ class WhatsAppService {
     async sendBulkMessages(gymId, messages, delayMs = 3000) {
         const results = { successful: 0, failed: 0, skipped: 0, errors: [] };
         const session = await this.getSession(gymId);
-        
+
         if (session.status !== 'CONNECTED' || !session.socket) {
             console.error(`[WhatsApp ${gymId}] Cannot send bulk, not connected.`);
             return results;
@@ -154,21 +179,20 @@ class WhatsAppService {
                 console.error(`  ✗ Failed for ${phone}: ${err.message}`);
             }
 
-            // Pause between sends to avoid rate-limiting
             if (i < messages.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         }
-        
-        console.log(`[WhatsApp ${gymId}] Bulk send done. ✓ ${results.successful} sent | ✗ ${results.failed} failed`);
+
+        console.log(`[WhatsApp ${gymId}] Bulk send done. ✓ ${results.successful} | ✗ ${results.failed}`);
         return results;
     }
 
     async requestPairingCode(gymId, phoneNumber) {
         const session = await this.getSession(gymId);
-        
+
         if (!session.socket) {
-            throw new Error('WhatsApp service not initialized.');
+            throw new Error('WhatsApp service not initialized. Try resetting the connection.');
         }
 
         let formatted = String(phoneNumber).replace(/[^0-9]/g, '');
@@ -179,7 +203,6 @@ class WhatsAppService {
         }
 
         try {
-            // Request pairing code from Baileys
             const code = await session.socket.requestPairingCode(formatted);
             return { success: true, code };
         } catch (err) {
