@@ -148,23 +148,28 @@ export function getWhatsAppLink(phone, message) {
 }
 
 export function buildWhatsAppMessage(member, gym) {
-  let template = gym.wa_msg_active || 'Hello [Name]';
+  const defaultMsg = `Hello ${member.name || 'Member'}, this is a reminder from ${gym?.gym_name || 'your gym'} regarding your membership.`;
+  
+  let template = gym?.wa_msg_active || defaultMsg;
   const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
   
   if (member.status === 'expired') {
-    template = gym.wa_msg_expired || gym.wa_msg_active;
+    template = gym?.wa_msg_expired || gym?.wa_msg_active || defaultMsg;
   } else if (member.status === 'due_soon') {
-    template = gym.wa_msg_due_soon || gym.wa_msg_active;
+    template = gym?.wa_msg_due_soon || gym?.wa_msg_active || defaultMsg;
   }
+
+  // Safety: if template is still null/undefined, use default
+  if (!template) template = defaultMsg;
 
   const daysStr = days !== null ? Math.abs(days).toString() : '0';
   
   return template
     .replace(/\[Name\]/gi, member.name || '')
-    .replace(/\[GymName\]/gi, gym.gym_name || '')
+    .replace(/\[GymName\]/gi, gym?.gym_name || '')
     .replace(/\[Days\]/gi, daysStr)
-    .replace(/\[Amount\]/gi, formatPKR(gym.default_monthly_fee || 0))
-    .replace(/\[Phone\]/gi, gym.phone || '');
+    .replace(/\[Amount\]/gi, formatPKR(gym?.default_monthly_fee || 0))
+    .replace(/\[Phone\]/gi, gym?.phone || '');
 }
 
 export function todayStr() {
