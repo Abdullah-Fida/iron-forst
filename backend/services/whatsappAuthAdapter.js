@@ -2,46 +2,81 @@ const { initAuthCreds, BufferJSON, proto } = require('@whiskeysockets/baileys');
 const { supabase } = require('../db/supabase');
 
 /**
- * Custom Baileys Auth State Adapter using Supabase (PostgreSQL)
- * Allows persistent WhatsApp sessions that survive server restarts.
- * Optimized with bulk reads/writes to prevent QR scan timeouts.
+ * Hybrid Auth State: In-Memory + Supabase Background Sync
+ * 
+ * Keys are stored in memory FIRST so the WhatsApp handshake completes instantly.
+ * Then they are synced to Supabase in the background for persistence across restarts.
  */
 async function useSupabaseAuthState(gymId) {
-    const writeData = async (data, key) => {
-        try {
-            const jsonStr = JSON.stringify(data, BufferJSON.replacer);
-            const jsonbPayload = JSON.parse(jsonStr);
-            await supabase
-                .from('whatsapp_auth')
-                .upsert({ gym_id: gymId, key, data: jsonbPayload }, { onConflict: 'gym_id, key' });
-        } catch (e) {
-            console.error('[WhatsApp Auth] Error writing key', key, e);
-        }
-    };
+    // In-memory cache — this is the primary store during runtime
+    const memoryStore = new Map();
 
-    const readData = async (key) => {
-        try {
-            const { data } = await supabase
-                .from('whatsapp_auth')
-                .select('data')
-                .eq('gym_id', gymId)
-                .eq('key', key)
-                .single();
+    // ── Load existing data from Supabase into memory ──
+    try {
+        const { data: rows, error } = await supabase
+            .from('whatsapp_auth')
+            .select('key, data')
+            .eq('gym_id', gymId);
 
-            if (data && data.data) {
-                const jsonStr = JSON.stringify(data.data);
-                return JSON.parse(jsonStr, BufferJSON.reviver);
+        if (!error && rows) {
+            for (const row of rows) {
+                memoryStore.set(row.key, row.data);
             }
-        } catch (e) {
-            // No row found is fine
+            console.log(`[WA Auth ${gymId}] Loaded ${rows.length} keys from Supabase`);
+        } else if (error) {
+            console.warn(`[WA Auth ${gymId}] Supabase load error (table may not exist):`, error.message);
         }
-        return null;
+    } catch (e) {
+        console.warn(`[WA Auth ${gymId}] Could not load from Supabase:`, e.message);
+    }
+
+    // ── Background sync to Supabase (fire-and-forget) ──
+    const syncToDb = (key, data) => {
+        // Don't await — let it run in the background
+        supabase
+            .from('whatsapp_auth')
+            .upsert({ gym_id: gymId, key, data }, { onConflict: 'gym_id, key' })
+            .then(({ error }) => {
+                if (error) console.warn(`[WA Auth] DB sync error for key ${key}:`, error.message);
+            })
+            .catch(() => {}); // Silently ignore DB errors — memory is the source of truth
     };
 
-    let creds = await readData('creds');
+    const deleteFromDb = (key) => {
+        supabase
+            .from('whatsapp_auth')
+            .delete()
+            .eq('gym_id', gymId)
+            .eq('key', key)
+            .then(({ error }) => {
+                if (error) console.warn(`[WA Auth] DB delete error for key ${key}:`, error.message);
+            })
+            .catch(() => {});
+    };
+
+    // ── Read from memory (with JSON reviver for Buffer reconstruction) ──
+    const readData = (key) => {
+        const raw = memoryStore.get(key);
+        if (!raw) return null;
+        try {
+            return JSON.parse(JSON.stringify(raw), BufferJSON.reviver);
+        } catch {
+            return null;
+        }
+    };
+
+    // ── Write to memory + background DB sync ──
+    const writeData = (data, key) => {
+        const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
+        memoryStore.set(key, serialized);
+        syncToDb(key, serialized);
+    };
+
+    // ── Initialize credentials ──
+    let creds = readData('creds');
     if (!creds) {
         creds = initAuthCreds();
-        await writeData(creds, 'creds');
+        writeData(creds, 'creds');
     }
 
     return {
@@ -50,72 +85,41 @@ async function useSupabaseAuthState(gymId) {
             keys: {
                 get: async (type, ids) => {
                     const data = {};
-                    const queryKeys = ids.map(id => `${type}-${id}`);
-                    
-                    try {
-                        const { data: rows } = await supabase
-                            .from('whatsapp_auth')
-                            .select('key, data')
-                            .eq('gym_id', gymId)
-                            .in('key', queryKeys);
-
-                        const rowMap = {};
-                        if (rows) {
-                            for (const row of rows) {
-                                rowMap[row.key] = row.data;
-                            }
+                    for (const id of ids) {
+                        let value = readData(`${type}-${id}`);
+                        if (type === 'app-state-sync-key' && value) {
+                            value = proto.Message.AppStateSyncKeyData.fromObject(value);
                         }
-
-                        for (const id of ids) {
-                            let value = rowMap[`${type}-${id}`];
-                            if (value) {
-                                value = JSON.parse(JSON.stringify(value), BufferJSON.reviver);
-                                if (type === 'app-state-sync-key') {
-                                    value = proto.Message.AppStateSyncKeyData.fromObject(value);
-                                }
-                            }
-                            data[id] = value;
-                        }
-                    } catch (err) {
-                        console.error('[WhatsApp Auth] Error in bulk get:', err);
+                        data[id] = value;
                     }
                     return data;
                 },
                 set: async (data) => {
-                    const upserts = [];
-                    const deletes = [];
-                    
                     for (const category in data) {
                         for (const id in data[category]) {
                             const value = data[category][id];
                             const key = `${category}-${id}`;
                             if (value) {
-                                const jsonStr = JSON.stringify(value, BufferJSON.replacer);
-                                upserts.push({ gym_id: gymId, key, data: JSON.parse(jsonStr) });
+                                writeData(value, key);
                             } else {
-                                deletes.push(key);
+                                memoryStore.delete(key);
+                                deleteFromDb(key);
                             }
                         }
-                    }
-
-                    try {
-                        if (upserts.length > 0) {
-                            await supabase.from('whatsapp_auth').upsert(upserts, { onConflict: 'gym_id, key' });
-                        }
-                        if (deletes.length > 0) {
-                            await supabase.from('whatsapp_auth').delete().eq('gym_id', gymId).in('key', deletes);
-                        }
-                    } catch (err) {
-                        console.error('[WhatsApp Auth] Error in bulk set:', err);
                     }
                 }
             }
         },
         saveCreds: () => {
-            return writeData(creds, 'creds');
+            writeData(creds, 'creds');
         },
         clearAll: async () => {
-            await supabase.from('whatsapp_auth').delete().eq('gym_id', gymId);
+            memoryStore.clear();
+            try {
+                await supabase.from('whatsapp_auth').delete().eq('gym_id', gymId);
+            } catch (e) {
+                console.warn(`[WA Auth] clearAll DB error:`, e.message);
+            }
         }
     };
 }
