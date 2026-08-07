@@ -205,8 +205,10 @@ export default function ActionCenterPage() {
               {waStatus === 'INITIALIZING' ? 'Loading QR...' : 'Scan QR Code'}
             </button>
           )}
-          {waConfigured && (
-             <button className="btn btn-secondary btn-sm" onClick={handleWaLogout}>Disconnect</button>
+          {waStatus !== 'INITIALIZING' && (
+             <button className="btn btn-secondary btn-sm" onClick={handleWaLogout}>
+               {waConfigured ? 'Disconnect' : 'Reset Connection'}
+             </button>
           )}
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '6px 14px', borderRadius: '999px', fontWeight: 600 }}>
             {waConfigured ? '🟢 Active' : (waStatus === 'INITIALIZING' ? '🟡 Starting...' : '🔴 Disconnected')}

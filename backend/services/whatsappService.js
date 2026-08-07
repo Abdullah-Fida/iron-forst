@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { useSupabaseAuthState } = require('./whatsappAuthAdapter');
 const QRCode = require('qrcode');
 const { Boom } = require('@hapi/boom');
@@ -28,12 +28,16 @@ class WhatsAppService {
         };
         this.sessions.set(gymId, sessionData);
 
-        const startSocket = () => {
+        const startSocket = async () => {
+            const { version } = await fetchLatestBaileysVersion();
+            console.log(`[WhatsApp ${gymId}] Starting with WA version ${version.join('.')}`);
+
             const sock = makeWASocket({
+                version,
                 auth: state,
                 logger: this.logger,
                 printQRInTerminal: false,
-                browser: ['IronFost System', 'Chrome', '1.0.0'],
+                // Using Baileys default browser config to avoid 'Invalid QR'
             });
 
             sessionData.socket = sock;
