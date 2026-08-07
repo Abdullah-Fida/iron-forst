@@ -18,6 +18,18 @@ router.post('/logout', async (req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 });
 
+// ── POST /api/whatsapp/pair ─── Request Pairing Code
+router.post('/pair', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, error: 'Phone number required' });
+    const result = await whatsappService.requestPairingCode(req.user.gym_id, phone);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /api/whatsapp/send ─── Send a single WhatsApp message
 router.post('/send', async (req, res) => {
   const { phone, message } = req.body;

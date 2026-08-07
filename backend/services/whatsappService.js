@@ -157,6 +157,30 @@ class WhatsAppService {
         console.log(`[WhatsApp ${gymId}] Bulk send done. ✓ ${results.successful} sent | ✗ ${results.failed} failed`);
         return results;
     }
+
+    async requestPairingCode(gymId, phoneNumber) {
+        const session = await this.getSession(gymId);
+        
+        if (!session.socket) {
+            throw new Error('WhatsApp service not initialized.');
+        }
+
+        let formatted = String(phoneNumber).replace(/[^0-9]/g, '');
+        if (formatted.startsWith('0') && formatted.length === 11) {
+            formatted = `92${formatted.slice(1)}`;
+        } else if (formatted.length === 10 && !formatted.startsWith('92')) {
+            formatted = `92${formatted}`;
+        }
+
+        try {
+            // Request pairing code from Baileys
+            const code = await session.socket.requestPairingCode(formatted);
+            return { success: true, code };
+        } catch (err) {
+            console.error(`[WhatsApp ${gymId}] Pairing code error:`, err);
+            throw new Error('Failed to request pairing code. Try resetting the connection first.');
+        }
+    }
 }
 
 module.exports = new WhatsAppService();
