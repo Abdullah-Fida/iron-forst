@@ -138,22 +138,37 @@ class WhatsAppService {
             throw new Error('WhatsApp is not connected. Please scan the QR code in the Action Center.');
         }
 
-        // Format phone to standard WhatsApp ID
+        // Format phone to standard WhatsApp ID (Pakistani numbers)
         let formatted = String(phone).replace(/[^0-9]/g, '');
+        // 03001234567 (11 digits, local) → 923001234567
         if (formatted.startsWith('0') && formatted.length === 11) {
             formatted = `92${formatted.slice(1)}`;
-        } else if (formatted.length === 10 && !formatted.startsWith('92')) {
+        }
+        // 3001234567 (10 digits, no prefix) → 923001234567
+        else if (formatted.length === 10 && !formatted.startsWith('92')) {
             formatted = `92${formatted}`;
         }
-        const jid = `${formatted}@s.whatsapp.net`;
+        // 923001234567 (12 digits, already international) → keep as is
+        // +923001234567 → + already stripped above → 923001234567
 
-        // Check if number is on WhatsApp
-        const [result] = await session.socket.onWhatsApp(jid);
-        if (!result || !result.exists) {
-            throw new Error('This number is not registered on WhatsApp.');
+        const jid = `${formatted}@s.whatsapp.net`;
+        console.log(`[WhatsApp ${gymId}] Sending to: ${phone} → formatted: ${formatted} → jid: ${jid}`);
+
+        try {
+            // Try to check if number exists on WhatsApp (but don't block on failure)
+            const [result] = await session.socket.onWhatsApp(jid);
+            if (!result || !result.exists) {
+                console.warn(`[WhatsApp ${gymId}] Number ${formatted} not found on WhatsApp`);
+                throw new Error(`Number ${phone} is not registered on WhatsApp.`);
+            }
+        } catch (checkErr) {
+            // If the check itself throws (network issue), log but still try to send
+            if (checkErr.message.includes('not registered')) throw checkErr;
+            console.warn(`[WhatsApp ${gymId}] onWhatsApp check failed (trying to send anyway):`, checkErr.message);
         }
 
         const msg = await session.socket.sendMessage(jid, { text: message });
+        console.log(`[WhatsApp ${gymId}] ✅ Message sent to ${formatted}, id: ${msg?.key?.id}`);
         return { success: true, sid: msg?.key?.id };
     }
 

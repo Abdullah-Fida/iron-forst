@@ -168,14 +168,25 @@ export default function ActionCenterPage() {
     const gym = getGymForMessage();
     const msg = buildWhatsAppMessage(member, gym);
     try {
-      await api.post('/whatsapp/send', { phone: member.phone, message: msg });
-      // Log the sent reminder
-      await api.post('/notifications', { member_id: member.id, notification_type: 'wa_reminder', message_template: msg, scheduled_for: new Date().toISOString() });
-      await api.patch(`/notifications/${(await api.get('/notifications', { params: { status: 'pending' } })).data.data?.find(n => n.member_id === member.id && n.notification_type === 'wa_reminder')?.id}/sent`).catch(() => {});
-      toast.success(`Message sent to ${member.name}!`);
-      fetchData(); // Refresh to show in Sent tab
+      const sendRes = await api.post('/whatsapp/send', { phone: member.phone, message: msg });
+      if (sendRes.data.success) {
+        toast.success(`Message sent to ${member.name}!`);
+        // Log the sent notification (fire-and-forget, don't block on this)
+        api.post('/notifications', {
+          member_id: member.id,
+          notification_type: 'wa_reminder',
+          message_template: msg,
+          scheduled_for: new Date().toISOString()
+        }).then(res => {
+          if (res.data?.data?.id) {
+            api.patch(`/notifications/${res.data.data.id}/sent`).catch(() => {});
+          }
+        }).catch(() => {});
+        fetchData();
+      }
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to send message.');
+      console.error('Remind error:', err);
+      toast.error(err.response?.data?.error || 'Failed to send message. Check Render logs.');
     }
   };
 
