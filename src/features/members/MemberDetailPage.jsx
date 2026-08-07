@@ -247,6 +247,10 @@ export default function MemberDetailPage() {
               <span className="label">Emergency Contact</span>
               <span className="value">{member.emergency_contact || 'Not provided'}</span>
             </div>
+            <div className="detail-item">
+              <span className="label">CNIC</span>
+              <span className="value">{member.cnic || 'Not provided'}</span>
+            </div>
           </div>
           {member.notes && (
             <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>

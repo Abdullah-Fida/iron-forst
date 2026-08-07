@@ -26,6 +26,7 @@ export default function AddMemberPage() {
       name: '',
       membership_id: '',
       phone: '',
+      cnic: '',
       gender: 'male',
       join_date: todayStr(),
       emergency_contact: '',
@@ -372,6 +373,16 @@ export default function AddMemberPage() {
                 type="tel"
                 value={memberForm.phone || ''}
                 onChange={e => setMember('phone', e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">CNIC (Optional)</label>
+              <input
+                className="form-input"
+                placeholder="e.g. 12345-1234567-1"
+                value={memberForm.cnic || ''}
+                onChange={e => setMember('cnic', e.target.value)}
               />
             </div>
 

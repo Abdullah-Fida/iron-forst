@@ -11,6 +11,7 @@ const memberSchema = z.object({
   membership_id: z.string().optional(),
   name: z.string().min(1).max(100),
   phone: z.string().min(10).max(20),
+  cnic: z.string().optional(),
   gender: z.enum(['male', 'female']).optional(),
   join_date: z.string().optional(),
   emergency_contact: z.string().optional(),

@@ -227,7 +227,7 @@ export default function MembersListPage() {
                     {member.name} {member.gender === 'female' ? '👩' : member.gender === 'male' ? '👨' : ''}
                   </div>
                   <div className="member-phone">
-                    {member.phone} {member.membership_id ? `• ID: ${member.membership_id}` : ''}
+                    {member.phone} {member.membership_id ? `• ID: ${member.membership_id}` : ''} • Fingerprint: {member.fingerprint_id || 'NA'}
                   </div>
                   {member.status === 'trial' && (
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Trial Mode</div>
