@@ -140,6 +140,21 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`║  🚀  Running at http://localhost:${PORT} ║`);
     console.log(`║  🌍  ENV: ${process.env.NODE_ENV?.padEnd(26)}║`);
     console.log('╚══════════════════════════════════════╝\n');
+
+    // ── Render Keep-Alive Ping ────────────
+    // Render free tier spins down after 15 mins of inactivity.
+    // This pings the server's own health endpoint every 14 minutes.
+    const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes
+    const selfUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+    
+    setInterval(() => {
+      console.log(`[Keep-Alive] Pinging ${selfUrl}/health to prevent sleep...`);
+      fetch(`${selfUrl}/health`)
+        .then(res => {
+          if (!res.ok) console.warn(`[Keep-Alive] Ping returned status: ${res.status}`);
+        })
+        .catch(err => console.error(`[Keep-Alive] Ping failed:`, err.message));
+    }, PING_INTERVAL);
   });
 }
 
