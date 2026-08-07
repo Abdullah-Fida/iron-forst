@@ -62,13 +62,13 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = memberSchema.parse(req.body);
 
-  // Check for duplicate member (same name and phone in this gym)
   const { data: existing } = await supabase
     .from('members')
     .select('id')
     .eq('gym_id', req.user.gym_id)
     .eq('phone', body.phone.trim())
     .ilike('name', body.name.trim())
+    .neq('status', 'deleted')
     .maybeSingle();
 
   if (existing) {
