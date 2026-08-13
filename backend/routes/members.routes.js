@@ -20,12 +20,24 @@ const memberSchema = z.object({
   status: z.enum(['active', 'inactive']).optional(),
 });
 
-// ── GET /api/members ─── List all members for a gym
-router.get('/', async (req, res) => {
-  const { gym_id, status, gender, search, sort = 'name', limit = 100, offset = 0 } = req.query;
-  const gid = gym_id || req.user.gym_id;
+// PostgREST caps how many rows a single response may return, so large gyms are
+// fetched in chunks and stitched together instead of being silently truncated.
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 50;
 
-  let query = supabase.from('members').select('*, payments(id, amount, payment_date, expiry_date, plan_duration_months)').eq('gym_id', gid).order('payment_date', { foreignTable: 'payments', ascending: false });
+// PostgREST parses `,` `(` `)` as filter syntax inside .or(), so they must not
+// reach the query from user input.
+const sanitizeSearch = (s) => String(s).replace(/[,()\\]/g, ' ').trim();
+
+const buildMembersQuery = (gid, { status, gender, search, sort }) => {
+  let query = supabase
+    .from('members')
+    .select('*, payments(id, amount, payment_date, expiry_date, plan_duration_months)', { count: 'exact' })
+    .eq('gym_id', gid)
+    .order('payment_date', { foreignTable: 'payments', ascending: false });
+
+  // Soft-deleted members are hidden unless explicitly asked for
+  if (status !== 'deleted') query = query.neq('status', 'deleted');
 
   if (status === 'inactive') {
     // Show members explicitly inactive OR those who never paid
@@ -36,19 +48,55 @@ router.get('/', async (req, res) => {
   } else if (status && status !== 'all') {
     query = query.eq('status', status);
   }
-  
+
   if (gender && gender !== 'all') {
     query = query.eq('gender', gender);
   }
 
-  if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,membership_id.ilike.%${search}%`);
+  if (search) {
+    const s = sanitizeSearch(search);
+    if (s) query = query.or(`name.ilike.%${s}%,phone.ilike.%${s}%,membership_id.ilike.%${s}%`);
+  }
+
   if (sort === 'join_date') query = query.order('join_date', { ascending: false });
   else query = query.order('name');
-  query = query.range(Number(offset), Number(offset) + Number(limit) - 1);
+  // Unique tiebreaker keeps chunked paging stable when names/join dates collide
+  query = query.order('id', { ascending: true });
 
-  const { data, error, count } = await query;
-  if (error) throw error;
-  res.json({ success: true, data, count });
+  return query;
+};
+
+// ── GET /api/members ─── List all members for a gym
+router.get('/', async (req, res) => {
+  const { gym_id, status, gender, search, sort = 'name', limit, offset = 0 } = req.query;
+  const gid = gym_id || req.user.gym_id;
+  const filters = { status, gender, search, sort };
+  const start = Number(offset) || 0;
+
+  // Explicit pagination requested by the caller
+  if (limit !== undefined && limit !== '') {
+    const lim = Math.max(1, Number(limit) || 1);
+    const { data, error, count } = await buildMembersQuery(gid, filters).range(start, start + lim - 1);
+    if (error) throw error;
+    return res.json({ success: true, data, count: count ?? data.length });
+  }
+
+  // No limit given: return every matching member. Previously this fell back to a
+  // hard 100-row cap, which hid members past the first 100 (alphabetically) from
+  // the directory, dashboard, attendance search and reminders.
+  const all = [];
+  let total = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = start + page * PAGE_SIZE;
+    const { data, error, count } = await buildMembersQuery(gid, filters).range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (total === null) total = count;
+    all.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    if (total !== null && start + all.length >= total) break;
+  }
+
+  res.json({ success: true, data: all, count: total ?? all.length });
 });
 
 // ── GET /api/members/:id ─── Single member

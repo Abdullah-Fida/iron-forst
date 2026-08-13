@@ -212,9 +212,22 @@ router.post('/', async (req, res) => {
   const { data, error } = await supabase.from('payments').insert(insertData).select().single();
   if (error) throw error;
 
+  // A backdated / catch-up payment must never pull latest_expiry backwards, which
+  // would flip a paid-up member to "expired" and drop them out of the Active tab.
+  const { data: currentMember } = await supabase
+    .from('members')
+    .select('latest_expiry')
+    .eq('id', body.member_id)
+    .eq('gym_id', req.user.gym_id)
+    .maybeSingle();
+
+  const newExpiry = (currentMember?.latest_expiry && currentMember.latest_expiry > expiry_date)
+    ? currentMember.latest_expiry
+    : expiry_date;
+
   // Update member status only for membership/trial payments
   if (body.payment_type === 'membership' || (!body.payment_type && Number(body.plan_duration_months) > 0)) {
-    await supabase.from('members').update({ status: 'active', latest_expiry: expiry_date }).eq('id', body.member_id);
+    await supabase.from('members').update({ status: 'active', latest_expiry: newExpiry }).eq('id', body.member_id).eq('gym_id', req.user.gym_id);
 
     // Auto-create notification for expiry warning (3 days before)
     const warnDate = new Date(expiry_date);
@@ -228,7 +241,7 @@ router.post('/', async (req, res) => {
     });
   } else if (body.payment_type === 'trial') {
     // Mark member as trial and set expiry
-    await supabase.from('members').update({ status: 'trial', latest_expiry: expiry_date }).eq('id', body.member_id);
+    await supabase.from('members').update({ status: 'trial', latest_expiry: newExpiry }).eq('id', body.member_id).eq('gym_id', req.user.gym_id);
 
     // Create a notification for trial expiry as well (3 days before)
     const warnDate = new Date(expiry_date);
@@ -256,7 +269,7 @@ router.post('/', async (req, res) => {
 
 // ── DELETE /api/payments/:id ─── Delete payment
 router.delete('/:id', async (req, res) => {
-  const { data: payment } = await supabase.from('payments').select('*, members(name)').eq('id', req.params.id).single();
+  const { data: payment } = await supabase.from('payments').select('*, members(name)').eq('id', req.params.id).eq('gym_id', req.user.gym_id).maybeSingle();
   if (payment) {
     await supabase.from('admin_notes').insert({
       gym_id: req.user.gym_id,
@@ -273,7 +286,8 @@ router.delete('/:id', async (req, res) => {
   if (payment && payment.member_id) {
     const { data: remaining } = await supabase.from('payments')
       .select('expiry_date, payment_date')
-      .eq('member_id', payment.member_id);
+      .eq('member_id', payment.member_id)
+      .eq('gym_id', req.user.gym_id);
     
     let newExpiry = null;
     let newStatus = 'inactive';
@@ -284,7 +298,7 @@ router.delete('/:id', async (req, res) => {
       newStatus = 'active'; 
     }
 
-    await supabase.from('members').update({ latest_expiry: newExpiry, status: newStatus }).eq('id', payment.member_id);
+    await supabase.from('members').update({ latest_expiry: newExpiry, status: newStatus }).eq('id', payment.member_id).eq('gym_id', req.user.gym_id);
   }
 
   res.json({ success: true, message: 'Payment deleted and expiry recalculated' });
