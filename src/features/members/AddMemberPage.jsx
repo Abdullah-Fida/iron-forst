@@ -224,12 +224,15 @@ export default function AddMemberPage() {
       const res = await api.post('/payments', paymentData);
       const serverPayment = res.data.data;
 
-      // Build a single combined receipt
+      // Build a single combined receipt.
+      // Print the expiry the SERVER stored, never the local estimate — the printed
+      // slip must match what the system actually enforces (and what a later reprint
+      // from the member detail page will show).
       const receiptData = {
         ...serverPayment,
         member_name: newMember.name,
         member_phone: newMember.phone,
-        expiry_date: estimatedExpiry,
+        expiry_date: serverPayment?.expiry_date || res.data.expiry_date || estimatedExpiry,
       };
 
       // If registration was included, add itemized breakdown for the receipt

@@ -182,7 +182,10 @@ export default function AddPaymentPage() {
 
       const estimatedExpiry = expiryDate;
 
-      setReceipts([ { ...serverPayment, member_name: selectedMember?.name || form.member_id, member_phone: selectedMember?.phone, expiry_date: estimatedExpiry } ]);
+      // Print the expiry the SERVER stored, never the local estimate — the printed
+      // slip must match what the system actually enforces (and what a later reprint
+      // from the member detail page will show).
+      setReceipts([ { ...serverPayment, member_name: selectedMember?.name || form.member_id, member_phone: selectedMember?.phone, expiry_date: serverPayment?.expiry_date || res.data.expiry_date || estimatedExpiry } ]);
       
       setShowReceipts(true);
       toast.success(`Payment saved!`);
