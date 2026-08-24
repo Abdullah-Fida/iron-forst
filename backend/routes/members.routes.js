@@ -20,6 +20,20 @@ const memberSchema = z.object({
   status: z.enum(['active', 'inactive']).optional(),
 });
 
+// A blank fingerprint must be stored as NULL, never as ''.
+// idx_members_gym_fingerprint_unique is a partial index with
+// "WHERE fingerprint_id IS NOT NULL", so NULL rows are exempt from the
+// uniqueness rule but '' is not — every unenrolled member saved as ''
+// competes for the same index slot, and the second one fails with a
+// duplicate-key error. Only rewrites the key when the client actually sent
+// it, so a partial edit (e.g. renaming a member) leaves the value alone.
+const blankToNull = (body, keys = ['fingerprint_id']) => {
+  for (const k of keys) {
+    if (k in body && (body[k] === null || String(body[k]).trim() === '')) body[k] = null;
+  }
+  return body;
+};
+
 // PostgREST caps how many rows a single response may return, so large gyms are
 // fetched in chunks and stitched together instead of being silently truncated.
 const PAGE_SIZE = 1000;
@@ -108,7 +122,7 @@ router.get('/:id', async (req, res) => {
 
 // ── POST /api/members ─── Add member
 router.post('/', async (req, res) => {
-  const body = memberSchema.parse(req.body);
+  const body = blankToNull(memberSchema.parse(req.body));
 
   const { data: existing } = await supabase
     .from('members')
@@ -130,7 +144,7 @@ router.post('/', async (req, res) => {
 
 // ── PUT /api/members/:id ─── Update member
 router.put('/:id', async (req, res) => {
-  const body = memberSchema.partial().parse(req.body);
+  const body = blankToNull(memberSchema.partial().parse(req.body));
   const { data, error } = await supabase.from('members').update(body).eq('id', req.params.id).eq('gym_id', req.user.gym_id).select().single();
   if (error || !data) return res.status(404).json({ success: false, message: 'Member not found' });
   res.json({ success: true, data, message: 'Member updated' });

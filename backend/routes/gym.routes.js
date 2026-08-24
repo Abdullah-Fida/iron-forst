@@ -138,16 +138,28 @@ router.post('/import', async (req, res) => {
   if (!Array.isArray(members)) return res.status(400).json({ success: false, message: 'Invalid payload' });
 
   for (const m of members) {
-    const fingerprint_id = m.membership_number;
-    
+    // Blank must become NULL, not ''. The partial unique index exempts NULL
+    // but not '', so a second blank row would fail with a duplicate key.
+    const rawFp = m.membership_number;
+    const fingerprint_id = (rawFp === null || rawFp === undefined || String(rawFp).trim() === '')
+      ? null
+      : String(rawFp).trim();
+
     let memberId;
-    const { data: existing } = await supabase
-      .from('members')
-      .select('id')
-      .eq('gym_id', gym_id)
-      .eq('fingerprint_id', fingerprint_id)
-      .maybeSingle();
-      
+    // Only match on fingerprint when there is one. PostgREST renders
+    // .eq(col, null) as "col=eq.null", which never matches a real NULL, so
+    // this lookup has to be skipped rather than run with a null value.
+    let existing = null;
+    if (fingerprint_id) {
+      const found = await supabase
+        .from('members')
+        .select('id')
+        .eq('gym_id', gym_id)
+        .eq('fingerprint_id', fingerprint_id)
+        .maybeSingle();
+      existing = found.data;
+    }
+
     if (existing) {
       memberId = existing.id;
       await supabase.from('members').update({
