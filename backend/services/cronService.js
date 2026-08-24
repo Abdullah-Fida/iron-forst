@@ -8,7 +8,10 @@ class CronService {
     }
 
     startAutomatedReminders() {
-        // Run every day at 09:00 AM
+        // Run every day at 09:00 AM gym-local time. Without an explicit timezone
+        // node-cron uses the server clock, which is UTC on Render — that fired
+        // these reminders at 2 PM Pakistan time.
+        const timezone = process.env.CRON_TIMEZONE || 'Asia/Karachi';
         cron.schedule('0 9 * * *', async () => {
             console.log('--- Running automated 9 AM WhatsApp Reminders ---');
             try {
@@ -22,7 +25,9 @@ class CronService {
             } catch (err) {
                 console.error('Error running daily cron job:', err);
             }
-        });
+        }, { timezone });
+
+        console.log(`[Cron] Daily WhatsApp reminders scheduled for 09:00 ${timezone}`);
     }
 
     async processGymReminders(gym) {
