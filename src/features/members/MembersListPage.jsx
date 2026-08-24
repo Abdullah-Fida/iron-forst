@@ -10,6 +10,12 @@ import api from '../../lib/api';
 import '../../styles/members.css';
 import '../../styles/loading.css';
 
+// A member counts as enrolled only if there is a real value here. Unenrolled
+// rows are a mix of NULL (older/imported members) and '' (added through the
+// form, which posts the empty input verbatim), so both must read as "not
+// enrolled" — the same rule the card uses when it renders "Fingerprint: NA".
+const hasFingerprint = (m) => String(m?.fingerprint_id ?? '').trim() !== '';
+
 export default function MembersListPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -18,6 +24,7 @@ export default function MembersListPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
   const [genderFilter, setGenderFilter] = useState(searchParams.get('gender') || 'all');
+  const [fingerprintFilter, setFingerprintFilter] = useState(searchParams.get('fingerprint') || 'all');
   const [sort, setSort] = useState('name');
   const [errorDetail, setErrorDetail] = useState(null);
   
@@ -70,6 +77,10 @@ export default function MembersListPage() {
     if (genderFilter !== 'all') {
       results = results.filter(m => m.gender === genderFilter);
     }
+
+    if (fingerprintFilter !== 'all') {
+      results = results.filter(m => (fingerprintFilter === 'enrolled' ? hasFingerprint(m) : !hasFingerprint(m)));
+    }
     
     if (sort === 'name') {
       results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -102,6 +113,11 @@ export default function MembersListPage() {
   const loading = !membersData;
   const members = processedMembers || [];
   const totalCount = members.length;
+
+  // Counted across every non-deleted member, so the numbers stay stable no
+  // matter which other filters are active.
+  const fpEnrolledCount = (membersData || []).filter(hasFingerprint).length;
+  const fpMissingCount = (membersData || []).length - fpEnrolledCount;
 
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, memberId: null, name: '' });
   const [deletingIds, setDeletingIds] = useState([]);
@@ -171,18 +187,24 @@ export default function MembersListPage() {
         ))}
       </div>
 
-      {/* Sort & Gender */}
-      <div style={{ marginBottom: 'var(--space-md)', display: 'flex', gap: 'var(--space-sm)' }}>
-        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1 }} value={sort} onChange={e => setSort(e.target.value)}>
+      {/* Sort, Gender & Fingerprint */}
+      <div style={{ marginBottom: 'var(--space-md)', display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
+        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1, minWidth: 140 }} value={sort} onChange={e => setSort(e.target.value)}>
           <option value="name">A → Z</option>
           <option value="join_date">Newest First</option>
           <option value="overdue">Most Overdue</option>
         </select>
 
-        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1 }} value={genderFilter} onChange={e => setGenderFilter(e.target.value)}>
+        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1, minWidth: 140 }} value={genderFilter} onChange={e => setGenderFilter(e.target.value)}>
           <option value="all">All Genders</option>
           <option value="male">Male</option>
           <option value="female">Female</option>
+        </select>
+
+        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)', flex: 1, minWidth: 140 }} value={fingerprintFilter} onChange={e => setFingerprintFilter(e.target.value)}>
+          <option value="all">All Fingerprints</option>
+          <option value="enrolled">Has Fingerprint ({fpEnrolledCount})</option>
+          <option value="missing">No Fingerprint ({fpMissingCount})</option>
         </select>
       </div>
 
@@ -196,7 +218,7 @@ export default function MembersListPage() {
           <StateView 
             type="empty" 
             title="No members found" 
-            description={search || statusFilter !== 'all' ? "Try changing your search or filters." : "Start by adding your first gym member."}
+            description={search || statusFilter !== 'all' || genderFilter !== 'all' || fingerprintFilter !== 'all' ? "Try changing your search or filters." : "Start by adding your first gym member."}
           />
         ) : (
           members.map(member => {
