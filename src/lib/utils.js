@@ -38,17 +38,29 @@ export function daysFromNow(dateStr) {
   return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
 }
 
+// Mirrors the server's expiry calculation in backend/routes/payments.routes.js.
+// Month plans advance the calendar month; trials and custom plans add whole days.
+// The server is the source of truth — this only drives the "valid till" preview
+// shown before saving, so the two must stay identical or the preview lies.
+// (It previously used durationMonths * 30, which disagreed with the server on
+// every payment: +1 to +5 days in most months, -2 days for February.)
 export function calculateExpiryDate(paymentDate, durationMonths, customDays = 0) {
   if (!paymentDate) return null;
   const d = new Date(paymentDate);
-  let parsedDays = Number(customDays);
-  if (isNaN(parsedDays)) parsedDays = 0;
-  
-  const daysToAdd = durationMonths === 'custom' || durationMonths === 0 
-    ? parsedDays 
-    : (Number(durationMonths) * 30);
-    
-  d.setDate(d.getDate() + daysToAdd);
+  if (isNaN(d.getTime())) return null;
+
+  const isDayBased = durationMonths === 'custom' || Number(durationMonths) === 0;
+
+  if (isDayBased) {
+    let parsedDays = Number(customDays);
+    if (isNaN(parsedDays)) parsedDays = 0;
+    d.setUTCDate(d.getUTCDate() + parsedDays);
+  } else {
+    const months = Number(durationMonths);
+    if (isNaN(months)) return null;
+    d.setUTCMonth(d.getUTCMonth() + months);
+  }
+
   try {
     return d.toISOString().split('T')[0];
   } catch (e) {
