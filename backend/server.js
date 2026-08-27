@@ -112,18 +112,21 @@ app.use('/api/drafts', draftsRoutes);
 app.use('/api/live', liveRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 
-// ── ZKTeco ADMS Route ─────────────────
-const admsRoutes = require('./routes/adms');
-app.use('/adms', admsRoutes);
-app.use('/iclock/cdata', admsRoutes); // Standard ZKTeco push path
-app.use('/iclock/getrequest', admsRoutes); // Standard ZKTeco poll path
+// ── ZKTeco ADMS Routes ────────────────
+// The whole /iclock tree is handed to one router. Mounting only /iclock/cdata
+// and /iclock/getrequest left the device's other calls (devicecmd, ping,
+// registry) falling through to the JSON 404 handler below, which the firmware
+// cannot parse.
+const { admsRouter, iclockRouter } = require('./routes/adms');
+app.use('/iclock', iclockRouter);
+app.use('/adms', admsRouter);
 
 // ── Serve Frontend Static Files (Single Service Deployment) ──
 const path = require('path');
 app.use(express.static(path.join(__dirname, '../dist')));
 
 // API / ZKTeco 404 Handler (if request is for API or ADMS/iclock but unmatched, return 404 JSON)
-app.use(['/api', '/adms', '/iclock'], (req, res) => {
+app.use(['/api'], (req, res) => {
   res.status(404).json({ success: false, message: `API Route ${req.originalUrl} not found` });
 });
 
