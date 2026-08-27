@@ -117,9 +117,18 @@ app.use('/api/whatsapp', whatsappRoutes);
 // and /iclock/getrequest left the device's other calls (devicecmd, ping,
 // registry) falling through to the JSON 404 handler below, which the firmware
 // cannot parse.
-const { admsRouter, iclockRouter } = require('./routes/adms');
+const { admsRouter, iclockRouter, getDeviceActivity } = require('./routes/adms');
 app.use('/iclock', iclockRouter);
 app.use('/adms', admsRouter);
+
+// Live view of whether the fingerprint device is reaching this server. Open it
+// in a browser while standing at the device: if totalRequestsSinceBoot stays at
+// 0 while someone scans, the device is not getting here at all and the problem
+// is on the device/network side, not in this code. Carries no member data.
+app.get('/device-status', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(getDeviceActivity());
+});
 
 // ── Serve Frontend Static Files (Single Service Deployment) ──
 const path = require('path');

@@ -15,9 +15,42 @@ const plain = (res, body) => {
 // Every request the device makes is logged, including ones we do not otherwise
 // act on. Without this there is no way to tell "the device never reached us"
 // apart from "the device reached us and we answered badly".
+// A small in-memory record of what the device has asked for, so the state of
+// the link can be read straight off an endpoint instead of scrolling a hosting
+// dashboard. Deliberately holds no member data — only enough to tell "the
+// device is reaching us" apart from "it is not". Resets when the process
+// restarts, which is fine for a live diagnostic.
+const MAX_HITS = 30;
+const recentHits = [];
+let totalHits = 0;
+const bootedAt = new Date().toISOString();
+
+const getDeviceActivity = () => ({
+  serverTime: new Date().toISOString(),
+  bootedAt,
+  totalRequestsSinceBoot: totalHits,
+  lastRequest: recentHits[0] || null,
+  recent: recentHits,
+});
+
 const traceDevice = (req, res, next) => {
+  // Behind Render's proxy req.ip is the proxy itself, so prefer the forwarded
+  // header to get the gym's actual public IP.
+  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+
+  totalHits += 1;
+  recentHits.unshift({
+    at: new Date().toISOString(),
+    method: req.method,
+    path: req.originalUrl,
+    sn: req.query.SN || null,
+    table: req.query.table || null,
+    ip,
+  });
+  if (recentHits.length > MAX_HITS) recentHits.pop();
+
   console.log(
-    `\n[DEVICE] ${req.method} ${req.originalUrl} | SN=${req.query.SN || '-'} | ip=${req.ip}`
+    `\n[DEVICE] ${req.method} ${req.originalUrl} | SN=${req.query.SN || '-'} | ip=${ip}`
   );
   next();
 };
@@ -82,4 +115,4 @@ admsRouter.use(traceDevice);
 admsRouter.post('/', rawText, handleAdmsEvent);
 admsRouter.get('/', (req, res) => plain(res, 'OK'));
 
-module.exports = { admsRouter, iclockRouter };
+module.exports = { admsRouter, iclockRouter, getDeviceActivity };
