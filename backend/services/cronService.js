@@ -94,7 +94,8 @@ class CronService {
         // Send them sequentially
         for (const msgObj of messages) {
             try {
-                await whatsappService.sendMessage(gym.id, msgObj.phone, msgObj.message);
+                // Skip number check to avoid rate limiting for automated bulk sends
+                await whatsappService.sendMessage(gym.id, msgObj.phone, msgObj.message, { skipNumberCheck: true });
                 
                 // Log in notifications as sent
                 await supabase.from('notifications').insert({
@@ -103,10 +104,11 @@ class CronService {
                     notification_type: 'automated_reminder',
                     message_template: msgObj.message,
                     status: 'sent',
+                    scheduled_for: new Date().toISOString(),
                     sent_at: new Date().toISOString()
                 });
                 
-                await new Promise(res => setTimeout(res, 3000)); // Delay to avoid ban
+                await new Promise(res => setTimeout(res, 5000)); // Delay to avoid ban (match bulk send)
             } catch (err) {
                 console.error(`[Cron] Failed to send to ${msgObj.phone}: ${err.message}`);
             }
