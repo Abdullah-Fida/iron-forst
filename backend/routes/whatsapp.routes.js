@@ -40,11 +40,14 @@ router.post('/send', async (req, res) => {
 
   try {
     const result = await whatsappService.sendMessage(req.user.gym_id, phone, message);
-    if (result.success) {
+    // Always respond — check for a valid sid to confirm delivery
+    if (result.success && result.sid) {
       res.json({ success: true, message: 'Message sent', sid: result.sid });
+    } else {
+      res.json({ success: false, error: 'Message may not have been delivered. No confirmation received.' });
     }
   } catch (err) {
-    console.error('[WhatsApp Send Error]', err);
+    console.error('[WhatsApp Send Error]', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -98,17 +101,55 @@ router.post('/test', async (req, res) => {
 
 // ── POST /api/whatsapp/send-bulk ─── Send bulk WhatsApp messages (async, non-blocking)
 router.post('/send-bulk', async (req, res) => {
-  const { messages } = req.body;
+  const { messages, memberMap } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ success: false, error: 'Messages array is required' });
   }
 
+  const gymId = req.user.gym_id;
+
   // Fire and forget — respond immediately so the UI doesn't hang
-  whatsappService.sendBulkMessages(req.user.gym_id, messages).then(results => {
-    console.log(`[WhatsApp ${req.user.gym_id}] Bulk send completed:`, results);
+  whatsappService.sendBulkMessages(gymId, messages).then(async (results) => {
+    console.log(`[WhatsApp ${gymId}] Bulk send completed:`, JSON.stringify(results));
+    
+    // Log successful sends as notifications in the DB
+    // memberMap is { phone: { member_id, message } } sent from frontend
+    if (memberMap && results.successful > 0) {
+      try {
+        const { supabase } = require('../db/supabase');
+        const sentPhones = new Set();
+        
+        // Build set of phones that failed
+        const failedPhones = new Set(results.errors.map(e => e.phone));
+        
+        for (const msg of messages) {
+          const cleanPhone = String(msg.phone).replace(/[^0-9]/g, '');
+          if (failedPhones.has(msg.phone)) continue;
+          if (sentPhones.has(cleanPhone)) continue;
+          sentPhones.add(cleanPhone);
+          
+          const memberInfo = memberMap[msg.phone];
+          if (!memberInfo?.member_id) continue;
+          
+          // Insert notification as already sent
+          await supabase.from('notifications').insert({
+            gym_id: gymId,
+            member_id: memberInfo.member_id,
+            notification_type: 'wa_reminder',
+            message_template: msg.message,
+            scheduled_for: new Date().toISOString(),
+            status: 'sent',
+            sent_at: new Date().toISOString()
+          });
+        }
+        console.log(`[WhatsApp ${gymId}] Logged ${sentPhones.size} sent notifications to DB.`);
+      } catch (logErr) {
+        console.error(`[WhatsApp ${gymId}] Failed to log notifications:`, logErr.message);
+      }
+    }
   }).catch(err => {
-    console.error(`[WhatsApp ${req.user.gym_id}] Bulk send error:`, err.message);
+    console.error(`[WhatsApp ${gymId}] Bulk send error:`, err.message);
   });
 
   res.json({

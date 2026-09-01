@@ -131,11 +131,19 @@ class WhatsAppService {
         return { success: true };
     }
 
-    async sendMessage(gymId, phone, message) {
+    async sendMessage(gymId, phone, message, options = {}) {
+        const { skipNumberCheck = false } = options;
         const session = await this.getSession(gymId);
 
         if (session.status !== 'CONNECTED' || !session.socket) {
             throw new Error('WhatsApp is not connected. Please scan the QR code in the Action Center.');
+        }
+
+        // Verify the socket is truly alive (not stale)
+        if (!session.socket.user) {
+            console.error(`[WhatsApp ${gymId}] Socket exists but user is null — connection is stale.`);
+            session.status = 'RECONNECTING';
+            throw new Error('WhatsApp connection is stale. Please wait for reconnection or re-scan QR.');
         }
 
         // Format phone to standard WhatsApp ID (Pakistani numbers)
@@ -154,25 +162,35 @@ class WhatsAppService {
         const jid = `${formatted}@s.whatsapp.net`;
         console.log(`[WhatsApp ${gymId}] Sending to: ${phone} → formatted: ${formatted} → jid: ${jid}`);
 
-        try {
-            // Try to check if number exists on WhatsApp (but don't block on failure)
-            const [result] = await session.socket.onWhatsApp(jid);
-            if (!result || !result.exists) {
-                console.warn(`[WhatsApp ${gymId}] Number ${formatted} not found on WhatsApp`);
-                throw new Error(`Number ${phone} is not registered on WhatsApp.`);
+        // Only do the onWhatsApp check for single sends (not bulk)
+        // The onWhatsApp API is rate-limited by WhatsApp and returns false negatives during bulk
+        if (!skipNumberCheck) {
+            try {
+                const [result] = await session.socket.onWhatsApp(jid);
+                if (!result || !result.exists) {
+                    console.warn(`[WhatsApp ${gymId}] Number ${formatted} not found on WhatsApp`);
+                    throw new Error(`Number ${phone} is not registered on WhatsApp.`);
+                }
+            } catch (checkErr) {
+                // If the check itself throws (network issue), log but still try to send
+                if (checkErr.message.includes('not registered')) throw checkErr;
+                console.warn(`[WhatsApp ${gymId}] onWhatsApp check failed (trying to send anyway):`, checkErr.message);
             }
-        } catch (checkErr) {
-            // If the check itself throws (network issue), log but still try to send
-            if (checkErr.message.includes('not registered')) throw checkErr;
-            console.warn(`[WhatsApp ${gymId}] onWhatsApp check failed (trying to send anyway):`, checkErr.message);
         }
 
         const msg = await session.socket.sendMessage(jid, { text: message });
-        console.log(`[WhatsApp ${gymId}] ✅ Message sent to ${formatted}, id: ${msg?.key?.id}`);
-        return { success: true, sid: msg?.key?.id };
+        
+        // Verify we got a valid message key back — if not, the send may have silently failed
+        if (!msg?.key?.id) {
+            console.error(`[WhatsApp ${gymId}] sendMessage returned no message key for ${formatted}`);
+            throw new Error('Message send failed — no confirmation received from WhatsApp.');
+        }
+        
+        console.log(`[WhatsApp ${gymId}] ✅ Message sent to ${formatted}, id: ${msg.key.id}`);
+        return { success: true, sid: msg.key.id };
     }
 
-    async sendBulkMessages(gymId, messages, delayMs = 3000) {
+    async sendBulkMessages(gymId, messages, delayMs = 5000) {
         const results = { successful: 0, failed: 0, skipped: 0, errors: [] };
         const session = await this.getSession(gymId);
 
@@ -181,17 +199,56 @@ class WhatsAppService {
             return results;
         }
 
-        console.log(`[WhatsApp ${gymId}] Bulk send starting - ${messages.length} messages.`);
+        // Verify session is truly alive before starting bulk
+        if (!session.socket.user) {
+            console.error(`[WhatsApp ${gymId}] Cannot send bulk, socket is stale (no user).`);
+            return results;
+        }
+
+        console.log(`[WhatsApp ${gymId}] Bulk send starting - ${messages.length} messages (delay: ${delayMs}ms, skipNumberCheck: true).`);
 
         for (let i = 0; i < messages.length; i++) {
             const { phone, message } = messages[i];
+            
+            // Re-check connection health periodically during bulk send
+            if (i > 0 && i % 10 === 0) {
+                const currentSession = this.sessions.get(gymId);
+                if (!currentSession || currentSession.status !== 'CONNECTED' || !currentSession.socket?.user) {
+                    console.error(`[WhatsApp ${gymId}] Connection lost during bulk send at message ${i + 1}/${messages.length}`);
+                    results.errors.push({ phone, error: 'Connection lost during bulk send' });
+                    results.failed += (messages.length - i);
+                    break;
+                }
+            }
+
             try {
-                await this.sendMessage(gymId, phone, message);
+                // Skip onWhatsApp check during bulk to avoid rate limiting & false negatives
+                await this.sendMessage(gymId, phone, message, { skipNumberCheck: true });
                 results.successful++;
+                console.log(`  ✓ [${i + 1}/${messages.length}] Sent to ${phone}`);
             } catch (err) {
+                console.error(`  ✗ [${i + 1}/${messages.length}] Failed for ${phone}: ${err.message}`);
+                
+                // Retry once after a short delay for transient errors
+                if (!err.message.includes('not connected') && !err.message.includes('stale')) {
+                    console.log(`  ↻ Retrying ${phone} in 3s...`);
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    try {
+                        await this.sendMessage(gymId, phone, message, { skipNumberCheck: true });
+                        results.successful++;
+                        console.log(`  ✓ [${i + 1}/${messages.length}] Retry succeeded for ${phone}`);
+                        // Continue to next message (skip the error push below)
+                        if (i < messages.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, delayMs));
+                        }
+                        continue;
+                    } catch (retryErr) {
+                        console.error(`  ✗ [${i + 1}/${messages.length}] Retry also failed for ${phone}: ${retryErr.message}`);
+                    }
+                }
+                
                 results.failed++;
                 results.errors.push({ phone, error: err.message });
-                console.error(`  ✗ Failed for ${phone}: ${err.message}`);
             }
 
             if (i < messages.length - 1) {
@@ -199,7 +256,7 @@ class WhatsAppService {
             }
         }
 
-        console.log(`[WhatsApp ${gymId}] Bulk send done. ✓ ${results.successful} | ✗ ${results.failed}`);
+        console.log(`[WhatsApp ${gymId}] Bulk send done. ✓ ${results.successful} | ✗ ${results.failed} | Total: ${messages.length}`);
         return results;
     }
 

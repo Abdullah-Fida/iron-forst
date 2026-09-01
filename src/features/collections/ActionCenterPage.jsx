@@ -169,9 +169,9 @@ export default function ActionCenterPage() {
     const msg = buildWhatsAppMessage(member, gym);
     try {
       const sendRes = await api.post('/whatsapp/send', { phone: member.phone, message: msg });
-      if (sendRes.data.success) {
+      if (sendRes.data.success && sendRes.data.sid) {
         toast.success(`Message sent to ${member.name}!`);
-        // Log the sent notification (fire-and-forget, don't block on this)
+        // Only log the notification as sent when we got a valid message ID back
         api.post('/notifications', {
           member_id: member.id,
           notification_type: 'wa_reminder',
@@ -183,10 +183,19 @@ export default function ActionCenterPage() {
           }
         }).catch(() => {});
         fetchData();
+      } else {
+        // Backend returned success: false or no sid — message was NOT delivered
+        toast.error(sendRes.data.error || 'Message could not be delivered. Please check WhatsApp connection.');
       }
     } catch (err) {
       console.error('Remind error:', err);
-      toast.error(err.response?.data?.error || 'Failed to send message. Check Render logs.');
+      const errorMsg = err.response?.data?.error || 'Failed to send message.';
+      if (errorMsg.includes('stale') || errorMsg.includes('not connected')) {
+        toast.error('WhatsApp connection lost. Please reconnect in the Action Center.');
+        fetchWaStatus();
+      } else {
+        toast.error(errorMsg);
+      }
     }
   };
 
@@ -198,14 +207,26 @@ export default function ActionCenterPage() {
     setIsBulkSending(true);
     const gym = getGymForMessage();
     const messages = membersToRemind.map(m => ({ phone: m.phone, message: buildWhatsAppMessage(m, gym) }));
+    
+    // Build memberMap so the backend can log notifications for successful sends
+    const memberMap = {};
+    membersToRemind.forEach(m => {
+      memberMap[m.phone] = { member_id: m.id };
+    });
 
     try {
-      await api.post('/whatsapp/send-bulk', { messages });
-      toast.success(`Sending ${messages.length} messages in the background!`);
-      // Refresh after a delay to show sent items
-      setTimeout(() => fetchData(), 5000);
+      await api.post('/whatsapp/send-bulk', { messages, memberMap });
+      toast.success(`Sending ${messages.length} messages in the background! Check back in a few minutes.`);
+      // Refresh after a longer delay to account for 5s spacing between messages
+      setTimeout(() => fetchData(), Math.min(messages.length * 6000, 60000));
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to start bulk send.');
+      const errorMsg = err.response?.data?.error || 'Failed to start bulk send.';
+      if (errorMsg.includes('stale') || errorMsg.includes('not connected')) {
+        toast.error('WhatsApp connection lost. Please reconnect before sending.');
+        fetchWaStatus();
+      } else {
+        toast.error(errorMsg);
+      }
     } finally {
       setIsBulkSending(false);
     }
