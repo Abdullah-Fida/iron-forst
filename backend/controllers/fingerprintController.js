@@ -118,12 +118,20 @@ const handleAdmsEvent = async (req, res) => {
           validation.status
         );
 
-        // 5. Emit SSE event for real-time UI update
-        if (validation.gymId) {
+        // 5. Emit SSE event for real-time UI update.
+        //
+        // Every scan is pushed, including one from a finger that matches no
+        // member. Those have no member row and therefore no gym_id, and this
+        // used to be gated on validation.gymId — so an unknown fingerprint was
+        // written to access_logs but never appeared on the dashboard, which is
+        // the one case the gym most needs to see.
+        const gymId = validation.gymId || (await fingerprintService.getDefaultGymId());
+
+        if (gymId) {
           const memberInfo = await fingerprintService.getMemberDetails(validation.memberId);
           const events = req.app.locals.events;
           if (events) {
-            events.emit(`scan:${validation.gymId}`, {
+            events.emit(`scan:${gymId}`, {
               type: 'scan',
               fingerprintId,
               scanTime,
@@ -131,14 +139,20 @@ const handleAdmsEvent = async (req, res) => {
               verifyMode,
               access: validation.isValid ? 'granted' : 'denied',
               status: validation.status,
+              // Null member means the finger matched nobody. The dashboard
+              // renders that as "Unknown", so the name carries the fingerprint
+              // number to make the unenrolled id visible at the door.
               member: memberInfo || {
-                id: validation.memberId,
-                name: 'Unknown',
+                id: null,
+                name: `Unknown (ID ${fingerprintId})`,
+                fingerprint_id: fingerprintId,
               },
               timestamp: new Date().toISOString(),
             });
-            console.log(`📡 SSE event emitted for gym ${validation.gymId}`);
+            console.log(`📡 SSE emitted: ${validation.status} for fingerprint ${fingerprintId}`);
           }
+        } else {
+          console.warn('⚠️ No gym found — SSE event not emitted');
         }
       }
 

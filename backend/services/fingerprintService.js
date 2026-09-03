@@ -174,6 +174,31 @@ class FingerprintService {
       return null;
     }
   }
+
+  /**
+   * The gym id to attribute a scan to when no member matched.
+   *
+   * A scan from an unrecognised finger has no member, so it has no gym_id
+   * either — which previously meant those scans never reached the live feed.
+   * This software is single-tenant (registration locks after the first gym),
+   * so falling back to the only gym row is correct here, and it is what lets
+   * an unknown fingerprint still show up on the dashboard.
+   *
+   * Cached because it is looked up on every unmatched scan and never changes.
+   * @returns {Promise<string|null>}
+   */
+  async getDefaultGymId() {
+    if (this._defaultGymId) return this._defaultGymId;
+    try {
+      const { data, error } = await supabase.from('gyms').select('id').limit(1).maybeSingle();
+      if (error || !data) return null;
+      this._defaultGymId = data.id;
+      return this._defaultGymId;
+    } catch (err) {
+      console.error('❌ Error resolving default gym:', err.message);
+      return null;
+    }
+  }
 }
 
 module.exports = new FingerprintService();
