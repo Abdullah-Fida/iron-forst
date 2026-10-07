@@ -77,12 +77,14 @@ class FingerprintService {
    * @param {string} memberId 
    * @param {string} gymId 
    * @param {string} scanTime - ISO timestamp or "YYYY-MM-DD HH:mm:ss"
+   * @param {string} [localDate] - "YYYY-MM-DD" in the gym's time zone; the UTC
+   *   date of scanTime is a day behind for scans just after local midnight
    * @returns {Promise<object|null>} The attendance record or null if already marked
    */
-  async markAttendance(memberId, gymId, scanTime) {
+  async markAttendance(memberId, gymId, scanTime, localDate) {
     try {
       // Normalize the date for today's check
-      const scanDate = scanTime ? scanTime.split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0];
+      const scanDate = localDate || (scanTime ? scanTime.split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0]);
       const checkInTime = scanTime ? new Date(scanTime).toISOString() : new Date().toISOString();
 
       // Check if already checked in today
@@ -120,6 +122,32 @@ class FingerprintService {
     } catch (err) {
       console.error('❌ Error marking attendance:', err.message);
       return null;
+    }
+  }
+
+  /**
+   * Whether this exact scan is already in access_logs. The device's scan time
+   * is exact to the second, so device + finger + time identifies one scan.
+   * @returns {Promise<boolean>}
+   */
+  async isAlreadyLogged(fingerprintId, device, timestamp) {
+    try {
+      const { data, error } = await supabase
+        .from('access_logs')
+        .select('id')
+        .eq('device', device)
+        .eq('fingerprint_id', fingerprintId)
+        .eq('timestamp', new Date(timestamp).toISOString())
+        .limit(1);
+
+      if (error) {
+        console.error('❌ Duplicate check failed:', error.message);
+        return false;
+      }
+      return data.length > 0;
+    } catch (err) {
+      console.error('❌ Error checking for duplicate scan:', err.message);
+      return false;
     }
   }
 
