@@ -2,7 +2,17 @@ const express = require('express');
 const { handleAdmsEvent } = require('../controllers/fingerprintController');
 
 // ZKTeco sends its payloads as raw text, not JSON.
-const rawText = express.text({ type: '*/*', limit: '2mb' });
+const readText = express.text({ type: '*/*', limit: '2mb' });
+
+// Notes how much of the upload arrived. If the device never finishes sending,
+// this never runs and the trace keeps only the size it declared.
+const rawText = (req, res, next) =>
+  readText(req, res, (err) => {
+    if (req.deviceHit && typeof req.body === 'string') {
+      req.deviceHit.receivedBytes = Buffer.byteLength(req.body);
+    }
+    next(err);
+  });
 
 // The device parses plain text only. Answering with JSON — which is what the
 // generic API 404 handler used to do for these paths — makes the firmware treat
@@ -20,7 +30,7 @@ const plain = (res, body) => {
 // dashboard. Deliberately holds no member data — only enough to tell "the
 // device is reaching us" apart from "it is not". Resets when the process
 // restarts, which is fine for a live diagnostic.
-const MAX_HITS = 30;
+const MAX_HITS = 60;
 const recentHits = [];
 let totalHits = 0;
 const bootedAt = new Date().toISOString();
@@ -39,14 +49,35 @@ const traceDevice = (req, res, next) => {
   const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
 
   totalHits += 1;
-  recentHits.unshift({
-    at: new Date().toISOString(),
+  const startedAt = Date.now();
+  const hit = {
+    at: new Date(startedAt).toISOString(),
     method: req.method,
     path: req.originalUrl,
     sn: req.query.SN || null,
     table: req.query.table || null,
     ip,
+  };
+  // The device has been seen to send the start of an upload and then go silent
+  // for good. Recording what it declared, what actually arrived and whether we
+  // answered tells "it never finished sending" apart from "it never read our
+  // reply". Sizes and timings only — no body content, as this list is public.
+  if (req.method === 'POST') {
+    hit.declaredBytes = req.headers['content-length'] ?? null;
+    hit.contentType = req.headers['content-type'] ?? null;
+    if (req.headers.expect) hit.expect = req.headers.expect;
+    if (req.headers['transfer-encoding']) hit.transferEncoding = req.headers['transfer-encoding'];
+  }
+  req.deviceHit = hit;
+  if (req.headers['user-agent']) hit.userAgent = req.headers['user-agent'];
+  res.on('finish', () => {
+    hit.status = res.statusCode;
+    hit.ms = Date.now() - startedAt;
   });
+  res.on('close', () => {
+    if (!res.writableFinished) hit.closedWithoutReply = Date.now() - startedAt;
+  });
+  recentHits.unshift(hit);
   if (recentHits.length > MAX_HITS) recentHits.pop();
 
   console.log(
