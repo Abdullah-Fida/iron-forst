@@ -1,5 +1,5 @@
 const fingerprintService = require('../services/fingerprintService');
-const mqttService = require('../services/mqttService');
+const blynkService = require('../services/blynkService');
 
 /**
  * Parses ADMS plain text body for KEY=VALUE pairs (used by OPTIONS table etc.)
@@ -142,14 +142,9 @@ const handleAdmsEvent = async (req, res) => {
           }
         }
 
-        // 3. Open door if valid and the person can still be at the door (MQTT - optional)
+        // 3. Open door if valid and the person can still be at the door (Blynk)
         if (validation.isValid && ageMs <= DOOR_WINDOW_MS) {
-          await mqttService.publishOpenDoor(
-            validation.memberId,
-            fingerprintId,
-            deviceSerial,
-            scanTime
-          );
+          await blynkService.openDoor(`member ${validation.memberId}, finger ${fingerprintId}`);
         }
 
         // 4. Log access attempt
