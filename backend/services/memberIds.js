@@ -79,6 +79,38 @@ async function findMembershipIdHolder(gymId, membershipId, memberId = null) {
   return data?.[0] || null;
 }
 
+// Pakistani mobile as its last 10 digits: 0333-4121703, +92 333 4121703 and
+// 923334121703 are the same number. Invisible characters pasted from a phone's
+// contact list are dropped with everything else that is not a digit.
+const phoneKey = (phone) => {
+  const d = String(phone || '').replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : d;
+};
+// 0300000000 / 03000000000 are placeholders typed when the real number is unknown
+const isPlaceholderPhone = (phone) => /^0*3?0+$/.test(phoneKey(phone)) || phoneKey(phone).length < 7;
+
+/** Active members already using this phone number (any format). */
+async function findPhoneHolders(gymId, phone, memberId = null) {
+  const key = phoneKey(phone);
+  if (isPlaceholderPhone(phone)) return [];
+  let query = supabase
+    .from('members')
+    .select('id, name, phone, membership_id')
+    .eq('gym_id', gymId)
+    .neq('status', 'deleted')
+    .ilike('phone', `%${key.slice(-4)}%`);
+  if (memberId) query = query.neq('id', memberId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).filter((m) => phoneKey(m.phone) === key);
+}
+
+const phoneInUseMessage = (phone, holders) => {
+  const who = holders.slice(0, 3).map((h) => `${h.name}${h.membership_id ? ` (${h.membership_id})` : ''}`).join(', ');
+  const more = holders.length > 3 ? ` and ${holders.length - 3} more` : '';
+  return `Phone number ${clean(phone)} is already used by ${who}${more}.`;
+};
+
 const fingerprintTakenMessage = (fp, holder) =>
   `Fingerprint ID ${clean(fp)} is already assigned to ${holder.name}. Use a different ID, or remove it from ${holder.name} first.`;
 
@@ -89,4 +121,7 @@ module.exports = {
   claimFingerprint,
   findMembershipIdHolder,
   fingerprintTakenMessage,
+  phoneKey,
+  findPhoneHolders,
+  phoneInUseMessage,
 };

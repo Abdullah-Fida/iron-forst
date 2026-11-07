@@ -8,7 +8,29 @@ const {
   claimFingerprint,
   findMembershipIdHolder,
   fingerprintTakenMessage,
+  phoneKey,
+  findPhoneHolders,
+  phoneInUseMessage,
 } = require('../services/memberIds');
+
+const sameName = (a, b) => String(a || '').toLowerCase().replace(/[^a-z0-9]/g, '') === String(b || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Same phone already on another member. Same name too = a duplicate (blocked).
+ * Different name = probably family sharing a phone: the form asks the user
+ * and resends with allow_shared_phone.
+ */
+const phoneProblem = async (gymId, body, req, memberId = null) => {
+  if (!body.phone) return null;
+  const holders = await findPhoneHolders(gymId, body.phone, memberId);
+  if (!holders.length) return null;
+  const twin = holders.find((h) => sameName(h.name, body.name));
+  if (twin) {
+    return { status: 409, body: { success: false, code: 'DUPLICATE_MEMBER', message: `${twin.name}${twin.membership_id ? ` (${twin.membership_id})` : ''} is already registered with phone ${twin.phone}. Open that member instead of adding again.` } };
+  }
+  if (req.body?.allow_shared_phone === true) return null;
+  return { status: 409, body: { success: false, code: 'PHONE_IN_USE', message: phoneInUseMessage(body.phone, holders), holders: holders.map((h) => ({ id: h.id, name: h.name, membership_id: h.membership_id })) } };
+};
 
 const router = express.Router();
 router.use(authenticate, requireGymOwner);
@@ -24,7 +46,8 @@ const memberSchema = z.object({
   emergency_contact: z.string().optional(),
   fingerprint_id: z.string().optional(),
   notes: z.string().optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  // 'trial' is set by trial payments; editing a trial member must not fail on it
+  status: z.enum(['active', 'inactive', 'trial']).optional(),
 });
 
 // A blank fingerprint must be stored as NULL, never as ''.
@@ -154,23 +177,18 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = blankToNull(memberSchema.parse(req.body));
 
-  const { data: existing } = await supabase
-    .from('members')
-    .select('id')
-    .eq('gym_id', req.user.gym_id)
-    .eq('phone', body.phone.trim())
-    .ilike('name', body.name.trim())
-    .neq('status', 'deleted')
-    .maybeSingle();
-
-  if (existing) {
-    return res.status(409).json({ success: false, message: 'Member with this name and phone already exists' });
-  }
+  const phone = await phoneProblem(req.user.gym_id, body, req);
+  if (phone) return res.status(phone.status).json(phone.body);
 
   const idProblem = await checkIds(req.user.gym_id, body);
   if (idProblem) return res.status(409).json({ success: false, message: idProblem });
 
   const { data, error } = await supabase.from('members').insert({ ...body, gym_id: req.user.gym_id, status: body.status || 'inactive' }).select().single();
+  if (isUniqueViolation(error) && body.id) {
+    // The same save arriving twice (slow network): the member already exists, so it is a success
+    const { data: already } = await supabase.from('members').select('*').eq('id', body.id).eq('gym_id', req.user.gym_id).maybeSingle();
+    if (already) return res.status(201).json({ success: true, data: already, message: 'Member added successfully' });
+  }
   if (isUniqueViolation(error)) return res.status(409).json({ success: false, message: duplicateMessage(error, body) });
   if (error) throw error;
   res.status(201).json({ success: true, data, message: 'Member added successfully' });
@@ -181,7 +199,7 @@ router.put('/:id', async (req, res) => {
   const body = blankToNull(memberSchema.partial().parse(req.body));
   const { data: current, error: findError } = await supabase
     .from('members')
-    .select('id, membership_id')
+    .select('id, name, phone, membership_id')
     .eq('id', req.params.id)
     .eq('gym_id', req.user.gym_id)
     .maybeSingle();
@@ -191,6 +209,11 @@ router.put('/:id', async (req, res) => {
   // An unchanged membership ID is not re-checked, so members who already share
   // one can still be edited.
   const membershipChanged = 'membership_id' in body && clean(body.membership_id).toLowerCase() !== clean(current.membership_id).toLowerCase();
+  if ('phone' in body && phoneKey(body.phone) !== phoneKey(current.phone)) {
+    const phone = await phoneProblem(req.user.gym_id, { ...body, name: body.name ?? current.name }, req, req.params.id);
+    if (phone) return res.status(phone.status).json(phone.body);
+  }
+
   const idProblem = await checkIds(req.user.gym_id, body, req.params.id, { membership: membershipChanged });
   if (idProblem) return res.status(409).json({ success: false, message: idProblem });
 
@@ -218,19 +241,19 @@ router.delete('/:id', async (req, res) => {
     // blocked the ID from ever being given to anyone again (database unique index).
     const { data: member, error: findError } = await supabase
       .from('members')
-      .select('id, fingerprint_id, notes')
+      .select('id, fingerprint_id, membership_id, notes')
       .eq('id', memberId)
       .eq('gym_id', gymId)
       .maybeSingle();
     if (findError) throw findError;
     if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
 
-    const update = { status: 'deleted' };
+    // Both IDs are freed for reuse; the old values stay in notes for the record.
+    const update = { status: 'deleted', fingerprint_id: null, membership_id: null };
     const fp = clean(member.fingerprint_id);
-    if (fp) {
-      update.fingerprint_id = null;
-      update.notes = `released_fingerprint_id:${fp};${member.notes || ''}`;
-    }
+    const mid = clean(member.membership_id);
+    const tags = `${fp ? `released_fingerprint_id:${fp};` : ''}${mid ? `released_membership_id:${mid};` : ''}`;
+    if (tags) update.notes = `${tags}${member.notes || ''}`;
     const result = await supabase.from('members').update(update).eq('id', memberId).eq('gym_id', gymId);
     error = result.error;
   }

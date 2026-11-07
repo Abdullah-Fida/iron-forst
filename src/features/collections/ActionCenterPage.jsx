@@ -19,7 +19,16 @@ export default function ActionCenterPage() {
   const [sentHistory, setSentHistory] = useState([]);
   const [gymData, setGymData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('recent');
+  const [filter, setFilter] = useState('paid_month');
+  // Which month's payers to show: default is the previous calendar month
+  const monthOptions = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1 - i, 1);
+      return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString('en-GB', { month: 'long', year: 'numeric' }) };
+    });
+  }, []);
+  const [paidMonth, setPaidMonth] = useState(monthOptions[0].key);
   const [search, setSearch] = useState('');
   const [waError, setWaError] = useState(null);
 
@@ -134,38 +143,45 @@ export default function ActionCenterPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Expired members split by how long ago their fee ended, so last month's
-  // people (most likely to renew) are not buried under those unpaid for
-  // months. Same 30-day line as the automatic reminders' default.
-  const overdueDays = (m) => {
-    const d = m.latest_expiry ? daysFromNow(m.latest_expiry) : null;
-    return d !== null && d < 0 ? -d : null;
+  // Members are grouped by WHEN THEY LAST PAID, not by how long ago they
+  // expired: "paid in October and now due/expired" are the people expected to
+  // renew this month. Anyone whose last fee is older than last month is
+  // "unpaid 2+ months" and kept separate so they don't bury the renewals.
+  const lastPaidMonth = (m) => {
+    const periods = (m.payments || []).filter(p => {
+      const type = (String(p.notes || '').match(/payment_type:(\w+)/) || [])[1];
+      if (type) return type === 'membership' || type === 'trial';
+      return p.expiry_date && p.payment_date && String(p.expiry_date) > String(p.payment_date);
+    });
+    const last = periods.sort((a, b) => String(b.payment_date).localeCompare(String(a.payment_date)))[0];
+    return last ? String(last.payment_date).slice(0, 7) : null;
   };
+  const byDays = (a, b) => (daysFromNow(a.latest_expiry) ?? 0) - (daysFromNow(b.latest_expiry) ?? 0);
   const groups = useMemo(() => {
-    const expired = members.filter(m => m.status === 'expired' && overdueDays(m) !== null);
+    const dueOrExpired = members.filter(m => m.status === 'expired' || m.status === 'due_soon');
+    const lastMonthKey = monthOptions[0].key;
     return {
-      recent: expired.filter(m => overdueDays(m) <= 30).sort((a, b) => overdueDays(a) - overdueDays(b)),
-      mid: expired.filter(m => overdueDays(m) > 30 && overdueDays(m) <= 90).sort((a, b) => overdueDays(a) - overdueDays(b)),
-      old: expired.filter(m => overdueDays(m) > 90).sort((a, b) => overdueDays(a) - overdueDays(b)),
-      dueSoon: members.filter(m => m.status === 'due_soon'),
+      paidMonth: dueOrExpired.filter(m => lastPaidMonth(m) === paidMonth).sort(byDays),
+      dueSoon: members.filter(m => m.status === 'due_soon').sort(byDays),
+      older: members.filter(m => m.status === 'expired' && (!lastPaidMonth(m) || lastPaidMonth(m) < lastMonthKey)).sort((a, b) => byDays(b, a)),
     };
-  }, [members]);
+  }, [members, paidMonth, monthOptions]);
 
   const stats = useMemo(() => ({
-    recent: groups.recent.length,
-    mid: groups.mid.length,
-    old: groups.old.length,
+    paidMonth: groups.paidMonth.length,
     dueSoon: groups.dueSoon.length,
+    older: groups.older.length,
     alerts: staffAlerts.length,
     sent: sentHistory.length
   }), [groups, staffAlerts, sentHistory]);
 
+  const monthLabel = (monthOptions.find(o => o.key === paidMonth) || monthOptions[0]).label.split(' ')[0];
+
   const displayedItems = useMemo(() => {
     if (filter === 'sent') return []; // Sent tab has its own rendering
     let items = [];
-    if (filter === 'recent') items = groups.recent;
-    if (filter === 'mid') items = groups.mid;
-    if (filter === 'old') items = groups.old;
+    if (filter === 'paid_month') items = groups.paidMonth;
+    if (filter === 'older') items = groups.older;
     if (filter === 'due_soon') items = groups.dueSoon;
     if (filter === 'alerts') return search.trim() ? staffAlerts.filter(a => (a.message_template || '').toLowerCase().includes(search.trim().toLowerCase())) : staffAlerts;
     return search.trim() ? searchMembers(items, search) : items;
@@ -322,17 +338,14 @@ export default function ActionCenterPage() {
       {/* ── Filters & Bulk Actions ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: 'var(--space-xl)' }}>
         <div className="filter-tabs">
-          <button className={`filter-tab ${filter === 'recent' ? 'active' : ''}`} onClick={() => setFilter('recent')}>
-            Expired · Last 30 days ({stats.recent})
+          <button className={`filter-tab ${filter === 'paid_month' ? 'active' : ''}`} onClick={() => setFilter('paid_month')}>
+            Paid in {monthLabel} · renewal due ({stats.paidMonth})
           </button>
           <button className={`filter-tab ${filter === 'due_soon' ? 'active' : ''}`} onClick={() => setFilter('due_soon')}>
-            Due Soon ({stats.dueSoon})
+            Due soon ({stats.dueSoon})
           </button>
-          <button className={`filter-tab ${filter === 'mid' ? 'active' : ''}`} onClick={() => setFilter('mid')}>
-            1–3 Months ({stats.mid})
-          </button>
-          <button className={`filter-tab ${filter === 'old' ? 'active' : ''}`} onClick={() => setFilter('old')}>
-            3+ Months ({stats.old})
+          <button className={`filter-tab ${filter === 'older' ? 'active' : ''}`} onClick={() => setFilter('older')}>
+            Unpaid 2+ months ({stats.older})
           </button>
           <button className={`filter-tab ${filter === 'alerts' ? 'active' : ''}`} onClick={() => setFilter('alerts')}>
             Staff & Alerts ({stats.alerts})
@@ -349,6 +362,16 @@ export default function ActionCenterPage() {
           </button>
         )}
       </div>
+
+      {filter === 'paid_month' && (
+        <div className="paid-month-picker">
+          <label htmlFor="paid-month">Show members whose last fee was paid in</label>
+          <select id="paid-month" className="form-select" value={paidMonth} onChange={e => setPaidMonth(e.target.value)}>
+            {monthOptions.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+          <span>and are now due or expired</span>
+        </div>
+      )}
 
       {filter !== 'sent' && (
         <div className="search-bar" style={{ marginBottom: 'var(--space-lg)' }}>
@@ -433,7 +456,7 @@ export default function ActionCenterPage() {
                       <h4 style={{ fontSize: '16px', fontWeight: '800', margin: '0 0 4px', color: 'var(--text-primary)' }}>{item.name}</h4>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color, fontWeight: '700' }}>
                         {isExpired ? <AlertTriangle size={14} /> : <Clock size={14} />}
-                        {days === null ? 'No payment record' : isExpired ? `${Math.abs(days)} days overdue` : `Expires in ${days} days`}
+                        {days === null ? 'No payment record' : isExpired ? `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue` : days === 0 ? 'Expires today' : `Expires in ${days} day${days === 1 ? '' : 's'}`}
                       </div>
                       <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
                         {item.phone || 'No phone number'}

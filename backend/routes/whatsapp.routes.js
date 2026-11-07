@@ -188,7 +188,7 @@ router.get('/reminder-preview', async (req, res) => {
   if (error) throw error;
   const settings = await reminderSettings.getSettings(req.user.gym_id);
   const { toSend, groups, skippedRecentlyMessaged } = await planReminders(gym, settings);
-  const slim = (m) => ({ id: m.id, name: m.name, phone: m.phone, days: m.days, expiry: m.expiry });
+  const slim = (m) => ({ id: m.id, name: m.name, phone: m.phone, days: m.days, expiry: m.expiry, lastPaidOn: m.lastPaidOn });
   res.json({
     success: true,
     data: {

@@ -16,8 +16,12 @@ const DEFAULTS = Object.freeze({
   endTime: '13:00',
   // 0 = Sunday ... 6 = Saturday
   days: [0, 1, 2, 3, 4, 5, 6],
-  // Who gets a message: members whose fee expired within this many days.
-  // Older ones (2-3+ months unpaid) are left for the owner to handle by hand.
+  // Who gets a message:
+  //  'paid_last_month' - their last fee was paid in the previous calendar month
+  //                      and is now due or expired (they are the ones who renew)
+  //  'expired_within'  - their fee expired within `expiredWithinDays` days
+  // Members unpaid for longer are left for the owner to handle by hand.
+  audience: 'paid_last_month',
   expiredWithinDays: 30,
   // Also remind members whose fee ends within this many days (0 = off)
   dueSoonDays: 3,
@@ -42,6 +46,7 @@ function sanitize(input = {}, base = DEFAULTS) {
   if (Array.isArray(input.days)) {
     s.days = [...new Set(input.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
   }
+  if (['paid_last_month', 'expired_within'].includes(input.audience)) s.audience = input.audience;
   if ('expiredWithinDays' in input) s.expiredWithinDays = int(input.expiredWithinDays, 1, 365, base.expiredWithinDays);
   if ('dueSoonDays' in input) s.dueSoonDays = int(input.dueSoonDays, 0, 30, base.dueSoonDays);
   if ('repeatEveryDays' in input) s.repeatEveryDays = int(input.repeatEveryDays, 1, 60, base.repeatEveryDays);

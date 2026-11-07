@@ -230,16 +230,16 @@ export default function MemberDetailPage() {
         <div className="stat-box">
           <div className="stat-label">Membership</div>
           <div className={`stat-value ${isExpired ? 'danger' : isDueSoon ? 'warning' : 'success'}`}>
-            {days === null ? 'No Payment' : isExpired ? `${Math.abs(days)}d Overdue` : `${days} Days Left`}
+            {days === null ? 'No payment' : isExpired ? `${Math.abs(days)}d overdue` : `${days} day${days === 1 ? '' : 's'} left`}
           </div>
         </div>
         <div className="stat-box">
           <div className="stat-label">Transactions</div>
-          <div className="stat-value">{payments.length} Records</div>
+          <div className="stat-value">{payments.length} record{payments.length === 1 ? '' : 's'}</div>
         </div>
         <div className="stat-box">
           <div className="stat-label">Visits this Month</div>
-          <div className="stat-value" style={{ color: 'var(--accent-primary)' }}>{attendanceCount} Days</div>
+          <div className="stat-value" style={{ color: 'var(--accent-primary)' }}>{attendanceCount} day{attendanceCount === 1 ? '' : 's'}</div>
         </div>
       </div>
 

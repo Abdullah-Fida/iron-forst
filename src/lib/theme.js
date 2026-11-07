@@ -159,7 +159,8 @@ export const THEME_PRESETS = [
   }),
 ];
 
-const DEFAULT_THEME_ID = 'amber-gold';
+// Cyan in light mode is what everyone sees when they open the software.
+const DEFAULT_THEME_ID = 'slate-cyan';
 
 function getThemeById(themeId) {
   return THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];
@@ -183,11 +184,47 @@ export function getActiveThemeId() {
   }
 }
 
+// Light mode needs a deeper accent (white text on bright cyan is hard to read)
+// and pale tints; the preset tints are dark-mode colours. They are set inline,
+// so they are swapped here rather than in the stylesheet, which inline styles beat.
+const LIGHT_OVERRIDES = {
+  'slate-cyan': { primary: '#0891b2', hover: '#0e7490', rgb: '8, 145, 178' },
+  'glacier-mint': { primary: '#0d9488', hover: '#0f766e', rgb: '13, 148, 136' },
+  'amber-gold': { primary: '#d97706', hover: '#b45309', rgb: '217, 119, 6' },
+  'sage-olive': { primary: '#65a30d', hover: '#4d7c0f', rgb: '101, 163, 13' },
+  'emerald-green': { primary: '#059669', hover: '#047857', rgb: '5, 150, 105' },
+};
+
+function themeVarsFor(theme, mode) {
+  if (mode !== 'light') return theme.vars;
+  const o = LIGHT_OVERRIDES[theme.id];
+  const rgb = o?.rgb || (theme.vars['accent-glow'].match(/rgba\(([^)]+), 0\.3\)/) || [])[1] || '8, 145, 178';
+  const primary = o?.primary || theme.vars['accent-primary'];
+  const hover = o?.hover || theme.vars['accent-primary-hover'];
+  return {
+    ...theme.vars,
+    'accent-primary': primary,
+    'accent-primary-hover': hover,
+    'accent-gradient': primary,
+    'accent-gradient-hover': hover,
+    'border-indigo': primary,
+    primary,
+    'loader-color': primary,
+    'loader-gradient': primary,
+    'accent-light': `rgba(${rgb}, 0.1)`,
+    'accent-border': `rgba(${rgb}, 0.32)`,
+    'accent-glow': `0 8px 18px rgba(${rgb}, 0.22)`,
+    'shadow-indigo': `0 10px 22px rgba(${rgb}, 0.16)`,
+    'shadow-neon': `0 0 16px rgba(${rgb}, 0.2)`,
+  };
+}
+
 export function applyTheme(themeId) {
   const theme = getThemeById(themeId);
   const root = document.documentElement;
+  const mode = root.classList.contains('light-mode') ? 'light' : root.classList.contains('dark-mode') ? 'dark' : getActiveMode();
 
-  Object.entries(theme.vars).forEach(([key, value]) => {
+  Object.entries(themeVarsFor(theme, mode)).forEach(([key, value]) => {
     root.style.setProperty(`--${key}`, value);
   });
 
@@ -201,10 +238,9 @@ export const MODE_STORAGE_KEY = 'core_ui_mode';
 export function getActiveMode() {
   try {
     const saved = localStorage.getItem(MODE_STORAGE_KEY);
-    // Default to dark for Gym SaaS vibe
-    return saved || 'dark';
+    return saved || 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 
@@ -217,7 +253,11 @@ export function applyMode(mode) {
     root.classList.add('dark-mode');
     root.classList.remove('light-mode');
   }
-  localStorage.setItem(MODE_STORAGE_KEY, mode);
+  try { localStorage.setItem(MODE_STORAGE_KEY, mode); } catch { /* storage blocked */ }
+  // Accent tints differ per mode
+  applyTheme(getActiveThemeId());
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', mode === 'light' ? '#ffffff' : '#0b1116');
   return mode;
 }
 
@@ -228,10 +268,6 @@ export function toggleMode() {
 }
 
 export function initTheme() {
-  const themeId = getActiveThemeId();
-  applyTheme(themeId);
-  
-  // Initialize mode
-  const mode = getActiveMode();
-  applyMode(mode);
+  // Mode first: the accent colours depend on it
+  applyMode(getActiveMode());
 }

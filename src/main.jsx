@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './styles/refresh.css'
 import App from './App.jsx'
 import { initTheme } from './lib/theme'
 

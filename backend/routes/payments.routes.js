@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
 
 // ── GET /api/payments/pending ─── Expired / due members
 router.get('/pending', async (req, res) => {
-  const { data, error } = await supabase.from('members').select('*, payments(id, amount, payment_date, expiry_date)').eq('gym_id', req.user.gym_id).not('status', 'eq', 'deleted').order('name');
+  const { data, error } = await supabase.from('members').select('*, payments(id, amount, payment_date, expiry_date, notes)').eq('gym_id', req.user.gym_id).not('status', 'eq', 'deleted').order('name');
   if (error) throw error;
   
   const today = new Date();
@@ -210,7 +210,17 @@ router.post('/', async (req, res) => {
     gym_id: req.user.gym_id,
     expiry_date,
   };
-  if (body.id) insertData.id = body.id;
+  if (body.id) {
+    insertData.id = body.id;
+    // The same payment arriving twice (slow network, double tap): return the one
+    // already saved instead of failing or saving it again.
+    const { data: already } = await supabase.from('payments').select('*').eq('id', body.id).eq('gym_id', req.user.gym_id).maybeSingle();
+    if (already) return res.status(201).json({ success: true, data: already, expiry_date: already.expiry_date, message: 'Payment already saved' });
+  }
+
+  const { data: memberExists } = await supabase.from('members').select('id, status').eq('id', body.member_id).eq('gym_id', req.user.gym_id).maybeSingle();
+  if (!memberExists) return res.status(404).json({ success: false, message: 'This member no longer exists. Please refresh and pick the member again.' });
+  if (memberExists.status === 'deleted') return res.status(400).json({ success: false, message: 'This member has been deleted. Restore or re-add them before taking a payment.' });
 
   const { data, error } = await supabase.from('payments').insert(insertData).select().single();
   if (error) throw error;

@@ -70,8 +70,11 @@ export default function ReminderSettingsCard() {
   if (!settings) return null;
 
   const run = settings.lastRunSummary;
+  const who = settings.audience === 'paid_last_month'
+    ? `paid last month, now due${settings.dueSoonDays ? ` (from ${settings.dueSoonDays} days before expiry)` : ''} or expired`
+    : `expired in last ${settings.expiredWithinDays} days${settings.dueSoonDays ? ` + due within ${settings.dueSoonDays} days` : ''}`;
   const summaryLine = settings.enabled
-    ? `On · ${to12h(settings.startTime)} – ${to12h(settings.endTime)} · expired in last ${settings.expiredWithinDays} days${settings.dueSoonDays ? ` + due within ${settings.dueSoonDays} days` : ''}`
+    ? `On · ${to12h(settings.startTime)} – ${to12h(settings.endTime)} · ${who}`
     : 'Off · no automatic messages';
 
   return (
@@ -116,14 +119,28 @@ export default function ReminderSettingsCard() {
             </div>
           </div>
 
+          <fieldset className="form-group reminder-audience" disabled={!settings.enabled}>
+            <legend className="form-label">Who gets a reminder</legend>
+            <label>
+              <input type="radio" name="audience" checked={settings.audience === 'paid_last_month'} onChange={() => set('audience', 'paid_last_month')} />
+              <span><strong>Paid last month, now due or expired</strong><small>e.g. paid in October, renewal due in November. Recommended.</small></span>
+            </label>
+            <label>
+              <input type="radio" name="audience" checked={settings.audience === 'expired_within'} onChange={() => set('audience', 'expired_within')} />
+              <span><strong>Expired within a number of days</strong><small>Anyone whose fee ended recently, whenever they last paid.</small></span>
+            </label>
+          </fieldset>
+
           <div className="reminder-grid">
+            {settings.audience === 'expired_within' && (
+              <div className="form-group">
+                <label className="form-label">Expired within (days)</label>
+                <input type="number" min="1" max="365" className="form-input" value={settings.expiredWithinDays}
+                  onChange={(e) => set('expiredWithinDays', e.target.value)} disabled={!settings.enabled} />
+              </div>
+            )}
             <div className="form-group">
-              <label className="form-label">Remind members expired within (days)</label>
-              <input type="number" min="1" max="365" className="form-input" value={settings.expiredWithinDays}
-                onChange={(e) => set('expiredWithinDays', e.target.value)} disabled={!settings.enabled} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Also remind before expiry (days, 0 = off)</label>
+              <label className="form-label">Start reminding before expiry (days, 0 = only after)</label>
               <input type="number" min="0" max="30" className="form-input" value={settings.dueSoonDays}
                 onChange={(e) => set('dueSoonDays', e.target.value)} disabled={!settings.enabled} />
             </div>
@@ -138,7 +155,7 @@ export default function ReminderSettingsCard() {
                 onChange={(e) => set('gapSeconds', e.target.value)} disabled={!settings.enabled} />
             </div>
           </div>
-          <p className="reminder-hint">Members unpaid for longer than this are listed under "Older" but never messaged automatically.</p>
+          <p className="reminder-hint">Members unpaid for longer stay in "Unpaid 2+ months" and are never messaged automatically.</p>
 
           <button type="button" className="btn btn-primary btn-block" onClick={save} disabled={!dirty || saving}>
             {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />} {dirty ? 'Save settings' : 'Saved'}
@@ -156,14 +173,16 @@ export default function ReminderSettingsCard() {
                 )}
               </div>
               <p className="reminder-hint">
-                Due soon: {preview.counts.dueSoon} · Expired in range: {preview.counts.recent} · Older (not messaged): {preview.counts.older}
+                {settings.audience === 'paid_last_month'
+                  ? `Paid last month & due/expired: ${preview.counts.recent} · Older unpaid (not messaged): ${preview.counts.older}`
+                  : `Due soon: ${preview.counts.dueSoon} · Expired in range: ${preview.counts.recent} · Older (not messaged): ${preview.counts.older}`}
                 {preview.counts.skippedRecentlyMessaged > 0 && ` · Already messaged recently: ${preview.counts.skippedRecentlyMessaged}`}
               </p>
               {showList && (
                 <ul className="reminder-preview-list">
                   {preview.toSend.map((m) => (
                     <li key={m.id}>
-                      <span>{m.name}</span>
+                      <span>{m.name}{m.lastPaidOn && <small className="reminder-paid"> · paid {new Date(m.lastPaidOn).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</small>}</span>
                       <span className={m.days < 0 ? 'overdue' : 'due'}>{m.days < 0 ? `${Math.abs(m.days)}d overdue` : m.days === 0 ? 'ends today' : `ends in ${m.days}d`}</span>
                     </li>
                   ))}

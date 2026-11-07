@@ -7,12 +7,14 @@ import { todayStr, calculateExpiryDate, formatDate, formatDateTime, formatPKR, g
 import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
 import { generateId } from '../../lib/utils';
 
 export default function AddMemberPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [receipts, setReceipts] = useState([]);
@@ -123,9 +125,23 @@ export default function AddMemberPage() {
       
       const id = generateId();
       const memberData = { ...memberForm, id };
-      
-      // DIRECT ONLINE API CALL
-      const res = await api.post('/members', memberData);
+
+      // DIRECT ONLINE API CALL. If the phone is already used by someone else
+      // (often family), the server names them and we ask before saving.
+      let res;
+      try {
+        res = await api.post('/members', memberData);
+      } catch (err) {
+        if (err.response?.data?.code !== 'PHONE_IN_USE') throw err;
+        const ok = await confirm({
+          title: 'Phone number already in use',
+          message: `${err.response.data.message} Add ${memberForm.name.trim()} with the same number anyway (for example a family member)?`,
+          confirmText: 'Add anyway',
+          type: 'warning',
+        });
+        if (!ok) return;
+        res = await api.post('/members', { ...memberData, allow_shared_phone: true });
+      }
       const serverMember = res.data.data;
       
       setNewMember(serverMember);

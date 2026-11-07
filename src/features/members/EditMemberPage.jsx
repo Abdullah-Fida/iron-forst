@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
 import { useToast } from '../../contexts/ToastContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
 import '../../styles/members.css';
 
@@ -10,6 +11,7 @@ export default function EditMemberPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
   
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -70,13 +72,24 @@ export default function EditMemberPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.phone) { toast.error('Name and phone are required'); return; }
-    if (!form.membership_id) { toast.error('Membership ID is required'); return; }
     if (!form.status) { toast.error('Membership status is required'); return; }
     
     setIsSaving(true);
     try {
       const updatedData = { ...form };
-      await api.put(`/members/${id}`, updatedData);
+      try {
+        await api.put(`/members/${id}`, updatedData);
+      } catch (err) {
+        if (err.response?.data?.code !== 'PHONE_IN_USE') throw err;
+        const ok = await confirm({
+          title: 'Phone number already in use',
+          message: `${err.response.data.message} Save with the same number anyway (for example a family member)?`,
+          confirmText: 'Save anyway',
+          type: 'warning',
+        });
+        if (!ok) return;
+        await api.put(`/members/${id}`, { ...updatedData, allow_shared_phone: true });
+      }
       toast.success('Member updated!');
       clearDraft();
       navigate(`/members/${id}`);

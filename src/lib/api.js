@@ -39,13 +39,28 @@ api.interceptors.response.use(
       config.retryMax = 3; // Retry up to 3 times
     }
 
-    const shouldRetry = config && (!error.response || (error.response.status >= 500 && error.response.status < 600));
+    // Only page loads (GET) are retried. Retrying a save could save it twice:
+    // if the first attempt reached the server but the reply was slow or lost,
+    // the repeat created a second payment, or failed as a duplicate member and
+    // showed "Internal server error".
+    const method = String(config?.method || 'get').toLowerCase();
+    const shouldRetry = config && method === 'get' && (!error.response || (error.response.status >= 500 && error.response.status < 600));
 
     if (shouldRetry && config.retryCount < config.retryMax) {
       config.retryCount += 1;
       const delay = new Promise((resolve) => setTimeout(resolve, config.retryCount * 1000));
       await delay;
       return api(config); // Retry the request
+    }
+
+    // No reply at all (offline, server restarting): give screens a clear message
+    if (!error.response) {
+      error.response = {
+        status: 0,
+        data: { success: false, message: navigator.onLine === false ? 'No internet connection. Please check the internet and try again.' : 'Cannot reach the server right now. Please wait a moment and try again.' },
+        config: config || {},
+      };
+      return Promise.reject(error);
     }
 
     // 2. Auth / Suspension Logic

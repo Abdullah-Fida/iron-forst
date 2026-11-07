@@ -152,7 +152,7 @@ export default function MembersListPage() {
     { key: 'active', label: `Active` },
     { key: 'trial', label: `Trial` },
     { key: 'inactive', label: `Inactive` },
-    { key: 'due_soon', label: `Due Soon` },
+    { key: 'due_soon', label: `Due soon` },
     { key: 'expired', label: `Expired` },
   ];
 
@@ -171,7 +171,7 @@ export default function MembersListPage() {
       {/* Search */}
       <div className="search-bar">
         <Search />
-        <input placeholder="Search name, phone, fingerprint or membership ID..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input placeholder="Search name, phone or ID" value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {/* Filter Tabs */}
@@ -241,11 +241,13 @@ export default function MembersListPage() {
                   {getInitials(member.name || '??')}
                 </div>
                 <div className="member-info">
-                  <div className="member-name">
-                    {member.name} {member.gender === 'female' ? '👩' : member.gender === 'male' ? '👨' : ''}
-                  </div>
-                  <div className="member-phone">
-                    {member.phone} {member.membership_id ? `• ID: ${member.membership_id}` : ''} • Fingerprint: {member.fingerprint_id || 'NA'}
+                  <div className="member-name">{member.name}</div>
+                  <div className="member-tags">
+                    {member.membership_id && <span className="member-tag">{member.membership_id}</span>}
+                    {member.fingerprint_id
+                      ? <span className="member-tag" title="Fingerprint ID">FP {member.fingerprint_id}</span>
+                      : <span className="member-tag missing" title="No fingerprint ID">No FP</span>}
+                    {member.phone && <span className="member-tag">{member.phone}</span>}
                   </div>
                   {member.status === 'trial' && (
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Trial Mode</div>
@@ -254,10 +256,10 @@ export default function MembersListPage() {
                 <div className="member-meta">
                   <span className={`badge badge-${member.status === 'trial' ? 'secondary' : (member.status === 'active' && days !== null) ? 'active' : member.status === 'due_soon' ? 'warning' : member.status === 'expired' ? 'danger' : 'secondary'}`}>
                     <span className={`badge-dot ${member.status === 'trial' ? 'secondary' : (member.status === 'active' && days !== null) ? 'active' : member.status === 'due_soon' ? 'warning' : member.status === 'expired' ? 'danger' : 'secondary'}`}></span>
-                    {(member.status === 'active' && days !== null) ? 'Active' : member.status === 'due_soon' ? 'Due Soon' : member.status === 'expired' ? 'Expired' : member.status === 'trial' ? 'Trial' : 'Inactive'}
+                    {(member.status === 'active' && days !== null) ? 'Active' : member.status === 'due_soon' ? 'Due soon' : member.status === 'expired' ? 'Expired' : member.status === 'trial' ? 'Trial' : 'Inactive'}
                   </span>
                   <div className="member-days" style={{ color: isExpired ? 'var(--status-danger)' : isDueSoon ? 'var(--status-warning)' : member.status === 'inactive' ? 'var(--text-muted)' : 'var(--status-active)' }}>
-                    {days === null ? 'No payment' : isExpired ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days}d left`}
+                    {days === null ? 'No payment' : isExpired ? `${Math.abs(days)}d overdue` : days === 0 ? 'Ends today' : `${days}d left`}
                   </div>
                   {member.lastPayDate && (
                      <div className="member-last-pay">Last: {formatDateShort(member.lastPayDate)}</div>
@@ -268,7 +270,8 @@ export default function MembersListPage() {
                   className="btn-icon-danger" 
                   style={{ marginLeft: 'var(--space-sm)', padding: 8, background: 'none', border: 'none', color: 'var(--status-danger)', cursor: 'pointer' }}
                   onClick={(e) => handleDeleteMember(e, member.id, member.name)}
-                  title="Delete Member"
+                  title="Delete member"
+                  aria-label={`Delete ${member.name}`}
                 >
                   <Trash2 size={18} />
                 </button>
