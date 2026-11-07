@@ -35,6 +35,7 @@ export default function EditMemberPage() {
              return { 
                name: m.name, 
                membership_id: m.membership_id || '',
+               fingerprint_id: m.fingerprint_id || '',
                phone: m.phone, 
                gender: m.gender || 'male',
                join_date: m.join_date, 
@@ -95,6 +96,10 @@ export default function EditMemberPage() {
       <form onSubmit={handleSubmit}>
         <div className="form-group"><label className="form-label">Full Name *</label><input className="form-input" value={form.name || ''} onChange={e => set('name', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Membership ID</label><input className="form-input" value={form.membership_id || ''} onChange={e => set('membership_id', e.target.value)} /></div>
+        <div className="form-group">
+          <label className="form-label">Fingerprint ID (device PIN)</label>
+          <input className="form-input" inputMode="numeric" placeholder="e.g. 267 — leave empty if not enrolled" value={form.fingerprint_id || ''} onChange={e => set('fingerprint_id', e.target.value)} />
+        </div>
         <div className="form-group"><label className="form-label">Phone Number *</label><input className="form-input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} /></div>
         <div className="form-group">
           <label className="form-label">Gender</label>

@@ -349,7 +349,7 @@ router.get('/', async (req, res) => {
   const date = req.query.date || getTodayDate();
   const { data, error } = await supabase
     .from('attendance')
-    .select('id, member_id, check_in_time, date, members(id, name, phone, status, latest_expiry, notes)')
+    .select('id, member_id, check_in_time, date, members(id, name, phone, status, latest_expiry, notes, fingerprint_id)')
     .eq('gym_id', req.user.gym_id)
     .eq('date', date)
     .order('check_in_time', { ascending: false });
@@ -367,7 +367,7 @@ router.get('/today', async (req, res) => {
   const today = getTodayDate();
   const { data, error } = await supabase
     .from('attendance')
-    .select('id, member_id, check_in_time, date, members(id, name, phone, status, latest_expiry, notes)')
+    .select('id, member_id, check_in_time, date, members(id, name, phone, status, latest_expiry, notes, fingerprint_id)')
     .eq('gym_id', req.user.gym_id)
     .eq('date', today)
     .order('check_in_time', { ascending: false });
