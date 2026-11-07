@@ -2,6 +2,13 @@ const express = require('express');
 const { z } = require('zod');
 const { supabase } = require('../db/supabase');
 const { authenticate, requireGymOwner, ownGymOnly } = require('../middleware/auth');
+const {
+  clean,
+  isUniqueViolation,
+  claimFingerprint,
+  findMembershipIdHolder,
+  fingerprintTakenMessage,
+} = require('../services/memberIds');
 
 const router = express.Router();
 router.use(authenticate, requireGymOwner);
@@ -33,6 +40,29 @@ const blankToNull = (body, keys = ['fingerprint_id']) => {
   }
   return body;
 };
+
+/**
+ * Checks the IDs in a create/edit before writing, so the person gets a clear
+ * message instead of a raw database error. Returns the message, or null.
+ */
+const checkIds = async (gymId, body, memberId = null, { membership = true } = {}) => {
+  if ('fingerprint_id' in body && body.fingerprint_id) {
+    body.fingerprint_id = clean(body.fingerprint_id);
+    const fp = await claimFingerprint(gymId, body.fingerprint_id, memberId);
+    if (!fp.ok) return fingerprintTakenMessage(body.fingerprint_id, fp.holder);
+  }
+  if (membership && body.membership_id) {
+    const holder = await findMembershipIdHolder(gymId, body.membership_id, memberId);
+    if (holder) return `Membership ID ${clean(body.membership_id)} is already used by ${holder.name}. Please use a different ID.`;
+  }
+  return null;
+};
+
+// Last line of defence if two saves race past checkIds.
+const duplicateMessage = (error, body) =>
+  /fingerprint/i.test(`${error.message} ${error.details}`)
+    ? `Fingerprint ID ${clean(body.fingerprint_id)} is already assigned to another member.`
+    : 'This member conflicts with an existing record (duplicate ID).';
 
 // PostgREST caps how many rows a single response may return, so large gyms are
 // fetched in chunks and stitched together instead of being silently truncated.
@@ -137,7 +167,11 @@ router.post('/', async (req, res) => {
     return res.status(409).json({ success: false, message: 'Member with this name and phone already exists' });
   }
 
+  const idProblem = await checkIds(req.user.gym_id, body);
+  if (idProblem) return res.status(409).json({ success: false, message: idProblem });
+
   const { data, error } = await supabase.from('members').insert({ ...body, gym_id: req.user.gym_id, status: body.status || 'inactive' }).select().single();
+  if (isUniqueViolation(error)) return res.status(409).json({ success: false, message: duplicateMessage(error, body) });
   if (error) throw error;
   res.status(201).json({ success: true, data, message: 'Member added successfully' });
 });
@@ -145,8 +179,25 @@ router.post('/', async (req, res) => {
 // ── PUT /api/members/:id ─── Update member
 router.put('/:id', async (req, res) => {
   const body = blankToNull(memberSchema.partial().parse(req.body));
+  const { data: current, error: findError } = await supabase
+    .from('members')
+    .select('id, membership_id')
+    .eq('id', req.params.id)
+    .eq('gym_id', req.user.gym_id)
+    .maybeSingle();
+  if (findError) throw findError;
+  if (!current) return res.status(404).json({ success: false, message: 'Member not found' });
+
+  // An unchanged membership ID is not re-checked, so members who already share
+  // one can still be edited.
+  const membershipChanged = 'membership_id' in body && clean(body.membership_id).toLowerCase() !== clean(current.membership_id).toLowerCase();
+  const idProblem = await checkIds(req.user.gym_id, body, req.params.id, { membership: membershipChanged });
+  if (idProblem) return res.status(409).json({ success: false, message: idProblem });
+
   const { data, error } = await supabase.from('members').update(body).eq('id', req.params.id).eq('gym_id', req.user.gym_id).select().single();
-  if (error || !data) return res.status(404).json({ success: false, message: 'Member not found' });
+  if (isUniqueViolation(error)) return res.status(409).json({ success: false, message: duplicateMessage(error, body) });
+  if (error) throw error;
+  if (!data) return res.status(404).json({ success: false, message: 'Member not found' });
   res.json({ success: true, data, message: 'Member updated' });
 });
 
@@ -162,8 +213,25 @@ router.delete('/:id', async (req, res) => {
     const result = await supabase.from('members').delete().eq('id', memberId).eq('gym_id', gymId);
     error = result.error;
   } else {
-    // Soft delete member instead of unlinking/deleting, to preserve payment history names
-    const result = await supabase.from('members').update({ status: 'deleted' }).eq('id', memberId).eq('gym_id', gymId);
+    // Soft delete member instead of unlinking/deleting, to preserve payment history names.
+    // The fingerprint ID is released at the same time: a hidden member keeping it
+    // blocked the ID from ever being given to anyone again (database unique index).
+    const { data: member, error: findError } = await supabase
+      .from('members')
+      .select('id, fingerprint_id, notes')
+      .eq('id', memberId)
+      .eq('gym_id', gymId)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
+
+    const update = { status: 'deleted' };
+    const fp = clean(member.fingerprint_id);
+    if (fp) {
+      update.fingerprint_id = null;
+      update.notes = `released_fingerprint_id:${fp};${member.notes || ''}`;
+    }
+    const result = await supabase.from('members').update(update).eq('id', memberId).eq('gym_id', gymId);
     error = result.error;
   }
   

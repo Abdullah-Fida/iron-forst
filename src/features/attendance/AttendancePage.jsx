@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
+import { searchMembers } from '../../lib/search';
 import { getInitials } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
 import { ModernLoader } from '../../components/common/ModernLoader';
@@ -150,49 +151,55 @@ export default function AttendancePage() {
     };
   }, []);
 
+  // Members are loaded once for both searches below. Fetching the whole list
+  // on every keystroke was slow, and a slower earlier reply could overwrite
+  // the results of a later one. A member with no phone also crashed the old
+  // filter, which emptied the results for everyone.
+  const membersCacheRef = useRef(null);
+  const loadMembers = async () => {
+    if (!membersCacheRef.current) {
+      const res = await api.get('/members');
+      membersCacheRef.current = (res.data.data || []).filter(m => m.status !== 'deleted');
+    }
+    return membersCacheRef.current;
+  };
+
   // ── Member search for manual attendance ──
   useEffect(() => {
+    let current = true;
     const performSearch = async () => {
-      if (!searchTerm || searchTerm.length < 2) {
+      if (!searchTerm || searchTerm.trim().length < 2) {
         setSearchResults([]);
         return;
       }
       try {
-        const res = await api.get('/members');
-        const allMembers = res.data.data || [];
-        const results = allMembers.filter(m => 
-          m.status !== 'deleted' &&
-          (m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          m.phone.includes(searchTerm))
-        ).slice(0, 10);
-        setSearchResults(results);
+        const all = await loadMembers();
+        if (current) setSearchResults(searchMembers(all, searchTerm).slice(0, 10));
       } catch (err) {
         console.error('Member search failed', err);
       }
     };
     performSearch();
+    return () => { current = false; };
   }, [searchTerm]);
 
   // ── Enrollment member search ──
   useEffect(() => {
+    let current = true;
     const search = async () => {
-      if (!enrollSearch || enrollSearch.length < 2) {
+      if (!enrollSearch || enrollSearch.trim().length < 2) {
         setEnrollResults([]);
         return;
       }
       try {
-        const res = await api.get('/members');
-        const allMembers = res.data.data || [];
-        setEnrollResults(allMembers.filter(m => 
-          m.status !== 'deleted' &&
-          (m.name.toLowerCase().includes(enrollSearch.toLowerCase()) || 
-          m.phone.includes(enrollSearch))
-        ).slice(0, 8));
+        const all = await loadMembers();
+        if (current) setEnrollResults(searchMembers(all, enrollSearch).slice(0, 8));
       } catch (err) {
         console.error(err);
       }
     };
     search();
+    return () => { current = false; };
   }, [enrollSearch]);
 
   useEffect(() => {
@@ -242,6 +249,7 @@ export default function AttendancePage() {
         setEnrollMember(null);
         setEnrollFpId('');
         setEnrollSearch('');
+        membersCacheRef.current = null; // pick up the new fingerprint ID
       } else {
         toast.error(res.data.message || 'Enrollment failed');
       }

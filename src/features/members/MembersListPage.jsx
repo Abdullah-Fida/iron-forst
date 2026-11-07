@@ -7,6 +7,7 @@ import { getInitials, daysFromNow, formatDateShort, calculateMemberStatus } from
 import { MemberSkeleton, StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import api from '../../lib/api';
+import { searchMembers } from '../../lib/search';
 import '../../styles/members.css';
 import '../../styles/loading.css';
 
@@ -60,15 +61,8 @@ export default function MembersListPage() {
     if (!membersData) return null;
     let results = [...membersData];
     
-    if (search) {
-      const s = search.toLowerCase();
-      results = results.filter(m => {
-        const nameMatch = (m.name || '').toLowerCase().includes(s);
-        const phoneMatch = String(m.phone || '').includes(s);
-        const idMatch = (m.membership_id || '').toLowerCase().includes(s);
-        return nameMatch || phoneMatch || idMatch;
-      });
-    }
+    const searching = search.trim() !== '';
+    if (searching) results = searchMembers(results, search);
     
     if (statusFilter !== 'all') {
       results = results.filter(m => m.status === statusFilter);
@@ -82,7 +76,9 @@ export default function MembersListPage() {
       results = results.filter(m => (fingerprintFilter === 'enrolled' ? hasFingerprint(m) : !hasFingerprint(m)));
     }
     
-    if (sort === 'name') {
+    if (searching && sort === 'name') {
+      // keep best matches on top while searching
+    } else if (sort === 'name') {
       results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     } else if (sort === 'join_date') {
       results.sort((a, b) => {
@@ -175,7 +171,7 @@ export default function MembersListPage() {
       {/* Search */}
       <div className="search-bar">
         <Search />
-        <input placeholder="Search by name, phone or ID..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input placeholder="Search name, phone, fingerprint or membership ID..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {/* Filter Tabs */}

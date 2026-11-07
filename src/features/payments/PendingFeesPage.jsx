@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, MessageCircle, CreditCard, Search, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
+import { searchMembers } from '../../lib/search';
 import { useAuth } from '../../contexts/AuthContext';
 import { getInitials, daysFromNow, formatDate, formatPKR, buildWhatsAppMessage, getWhatsAppLink, calculateMemberStatus } from '../../lib/utils';
 import { WHATSAPP_TEMPLATES } from '../../lib/constants';
@@ -52,10 +53,7 @@ export default function PendingFeesPage() {
   if (filter === 'expired') targetMembers = targetMembers.filter(m => m.status === 'expired');
   if (filter === 'due_soon') targetMembers = targetMembers.filter(m => m.status === 'due_soon');
 
-  if (search) {
-    const s = search.toLowerCase();
-    targetMembers = targetMembers.filter(m => m.name.toLowerCase().includes(s) || m.phone.includes(s));
-  }
+  if (search.trim()) targetMembers = searchMembers(targetMembers, search);
 
   const handleRemind = (member) => {
     const msg = `Hello ${member.name}, this is a reminder from ${user.name} regarding your gym membership renewal.`;

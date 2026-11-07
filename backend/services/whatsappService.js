@@ -2,11 +2,55 @@ const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = r
 const { useSupabaseAuthState } = require('./whatsappAuthAdapter');
 const QRCode = require('qrcode');
 const pino = require('pino');
+const { supabase } = require('../db/supabase');
+
+// Reconnect waits grow 3s, 6s, 12s ... up to 2 minutes, so a WhatsApp outage
+// is not hammered every 3 seconds (which itself gets numbers rate-limited).
+const backoffMs = (attempt) => Math.min(3000 * 2 ** Math.max(0, attempt - 1), 120000);
+const WATCHDOG_MS = 2 * 60 * 1000;
 
 class WhatsAppService {
     constructor() {
         this.sessions = new Map();
         this.logger = pino({ level: 'silent' });
+        // Watchdog: a session that dropped and has no reconnect scheduled is
+        // restarted, so WhatsApp does not stay disconnected until someone
+        // happens to open the Action Center.
+        this.watchdog = setInterval(() => this.checkSessions(), WATCHDOG_MS);
+        if (this.watchdog.unref) this.watchdog.unref();
+    }
+
+    /** Start every gym session that has a saved login (called at boot). */
+    async resumeSavedSessions() {
+        const { data, error } = await supabase.from('whatsapp_auth').select('gym_id').eq('key', 'creds');
+        if (error) throw error;
+        for (const { gym_id: gymId } of data || []) {
+            console.log(`[WhatsApp ${gymId}] Resuming saved session after restart`);
+            await this.getSession(gymId);
+        }
+    }
+
+    checkSessions() {
+        for (const [gymId, session] of this.sessions) {
+            const dead = ['RECONNECTING', 'DISCONNECTED'].includes(session.status) && !session.reconnectTimer && !session.loggedOut;
+            const stale = session.status === 'CONNECTED' && session.socket && !session.socket.user;
+            if (dead || stale) {
+                console.log(`[WhatsApp ${gymId}] Watchdog: session is ${stale ? 'stale' : session.status}, restarting`);
+                session.restart?.();
+            }
+        }
+    }
+
+    /** Resolves true once connected, false after `timeoutMs`. */
+    async waitForConnection(gymId, timeoutMs = 30000) {
+        const until = Date.now() + timeoutMs;
+        while (Date.now() < until) {
+            const session = this.sessions.get(gymId);
+            if (session?.status === 'CONNECTED' && session.socket?.user) return true;
+            if (session?.status === 'NEEDS_QR' || session?.loggedOut) return false;
+            await new Promise((r) => setTimeout(r, 1000));
+        }
+        return false;
     }
 
     async getSession(gymId) {
@@ -26,11 +70,46 @@ class WhatsAppService {
             socket: null,
             qr: null,
             status: 'INITIALIZING',
-            clearAll
+            clearAll,
+            attempts: 0,
+            reconnectTimer: null,
+            loggedOut: false,
+            lastError: null,
+            connectedAt: null,
         };
         this.sessions.set(gymId, sessionData);
 
+        const scheduleReconnect = (reason) => {
+            if (sessionData.reconnectTimer || sessionData.loggedOut) return;
+            sessionData.attempts += 1;
+            const wait = backoffMs(sessionData.attempts);
+            sessionData.status = 'RECONNECTING';
+            sessionData.lastError = reason;
+            console.log(`[WhatsApp ${gymId}] Reconnecting in ${Math.round(wait / 1000)}s (attempt ${sessionData.attempts}, ${reason})`);
+            sessionData.reconnectTimer = setTimeout(() => {
+                sessionData.reconnectTimer = null;
+                startSocket().catch((err) => scheduleReconnect(err.message));
+            }, wait);
+        };
+
+        // Closes the current socket and drops its listeners, so an old socket
+        // can never fire events into the session after a new one has started.
+        const closeSocket = () => {
+            const old = sessionData.socket;
+            sessionData.socket = null;
+            if (!old) return;
+            try { old.ev.removeAllListeners(); } catch {}
+            try { old.end(undefined); } catch {}
+        };
+
+        sessionData.restart = () => {
+            if (sessionData.reconnectTimer) return;
+            closeSocket();
+            startSocket().catch((err) => scheduleReconnect(err.message));
+        };
+
         const startSocket = async () => {
+            closeSocket();
             // Fetch the latest WA web version (with fallback)
             let version;
             try {
@@ -47,6 +126,12 @@ class WhatsAppService {
                 logger: this.logger,
                 printQRInTerminal: false,
                 browser: ['Ubuntu', 'Chrome', '20.0.04'],
+                // Not shown as "online" on the phone, and no full history sync:
+                // both keep the linked device lighter and less likely to be dropped.
+                markOnlineOnConnect: false,
+                syncFullHistory: false,
+                keepAliveIntervalMs: 25000,
+                connectTimeoutMs: 60000,
             };
             if (version) socketConfig.version = version;
 
@@ -55,9 +140,11 @@ class WhatsAppService {
 
             // Save credentials whenever they update
             sock.ev.on('creds.update', saveCreds);
+            const isCurrent = () => sessionData.socket === sock;
 
             // Handle connection lifecycle
             sock.ev.on('connection.update', async (update) => {
+                if (!isCurrent()) return;
                 const { connection, lastDisconnect, qr } = update;
 
                 if (qr) {
@@ -78,22 +165,35 @@ class WhatsAppService {
                     console.log(`[WhatsApp ${gymId}] Connection closed. Status: ${statusCode}, LoggedOut: ${loggedOut}`);
 
                     if (loggedOut) {
-                        // User intentionally logged out — wipe everything
+                        // Logged out from the phone (or the link was removed) — a new QR scan is needed
+                        sessionData.loggedOut = true;
                         sessionData.status = 'DISCONNECTED';
                         sessionData.qr = null;
-                        sessionData.socket = null;
+                        sessionData.lastError = 'Logged out from the phone. Please scan the QR code again.';
+                        closeSocket();
                         await clearAll();
                         console.log(`[WhatsApp ${gymId}] Session cleared after logout.`);
-                    } else {
-                        // Unexpected disconnect — try to reconnect
+                        // Fresh session so a new QR is ready when someone opens the page
+                        this.sessions.delete(gymId);
+                    } else if (statusCode === DisconnectReason.restartRequired) {
+                        // Normal right after linking: reconnect immediately
                         sessionData.status = 'RECONNECTING';
-                        console.log(`[WhatsApp ${gymId}] Reconnecting in 3s...`);
-                        setTimeout(() => startSocket(), 3000);
+                        startSocket().catch((err) => scheduleReconnect(err.message));
+                    } else {
+                        // Network drop, WhatsApp server restart, or another copy of this
+                        // server briefly connected during a deploy — retry with backoff
+                        const reason = statusCode === DisconnectReason.connectionReplaced
+                            ? 'connection replaced by another session'
+                            : (lastDisconnect?.error?.message || `status ${statusCode}`);
+                        scheduleReconnect(reason);
                     }
                 } else if (connection === 'open') {
                     console.log(`[WhatsApp ${gymId}] ✅ Connected successfully!`);
                     sessionData.status = 'CONNECTED';
                     sessionData.qr = null;
+                    sessionData.attempts = 0;
+                    sessionData.lastError = null;
+                    sessionData.connectedAt = new Date().toISOString();
                 }
             });
         };
@@ -101,7 +201,7 @@ class WhatsAppService {
         // Start without awaiting so it doesn't block the server boot
         startSocket().catch(err => {
             console.error(`[WhatsApp ${gymId}] Init failed:`, err.message);
-            sessionData.status = 'DISCONNECTED';
+            scheduleReconnect(err.message);
         });
     }
 
@@ -110,7 +210,10 @@ class WhatsAppService {
         return {
             status: session.status,
             qrCode: session.qr,
-            provider: 'baileys'
+            provider: 'baileys',
+            lastError: session.lastError || null,
+            connectedAt: session.connectedAt || null,
+            reconnectAttempts: session.attempts || 0,
         };
     }
 
@@ -125,6 +228,9 @@ class WhatsAppService {
                 console.warn(`[WhatsApp ${gymId}] Logout error (non-fatal):`, e.message);
             }
             // Always clean up regardless
+            session.loggedOut = true;
+            if (session.reconnectTimer) clearTimeout(session.reconnectTimer);
+            try { session.socket?.ev.removeAllListeners(); } catch (e) {}
             try { await session.clearAll(); } catch (e) {}
             this.sessions.delete(gymId);
         }
@@ -132,8 +238,14 @@ class WhatsAppService {
     }
 
     async sendMessage(gymId, phone, message, options = {}) {
-        const { skipNumberCheck = false } = options;
-        const session = await this.getSession(gymId);
+        const { skipNumberCheck = false, waitForConnectionMs = 15000 } = options;
+        let session = await this.getSession(gymId);
+
+        // A short reconnect (very common) should not fail the message
+        if (session.status !== 'CONNECTED' || !session.socket?.user) {
+            await this.waitForConnection(gymId, waitForConnectionMs);
+            session = await this.getSession(gymId);
+        }
 
         if (session.status !== 'CONNECTED' || !session.socket) {
             throw new Error('WhatsApp is not connected. Please scan the QR code in the Action Center.');
@@ -210,10 +322,12 @@ class WhatsAppService {
         for (let i = 0; i < messages.length; i++) {
             const { phone, message } = messages[i];
             
-            // Re-check connection health periodically during bulk send
+            // Re-check connection health periodically during bulk send,
+            // giving a dropped connection up to a minute to come back
             if (i > 0 && i % 10 === 0) {
                 const currentSession = this.sessions.get(gymId);
-                if (!currentSession || currentSession.status !== 'CONNECTED' || !currentSession.socket?.user) {
+                if ((!currentSession || currentSession.status !== 'CONNECTED' || !currentSession.socket?.user)
+                    && !(await this.waitForConnection(gymId, 60000))) {
                     console.error(`[WhatsApp ${gymId}] Connection lost during bulk send at message ${i + 1}/${messages.length}`);
                     results.errors.push({ phone, error: 'Connection lost during bulk send' });
                     results.failed += (messages.length - i);

@@ -296,7 +296,8 @@ export default function AddMemberPage() {
     try {
       const ids = receiptObj && receiptObj.ids && Array.isArray(receiptObj.ids) ? receiptObj.ids : [receiptObj.id];
       for (const pid of ids) {
-        await api.delete(`/payments/${pid}`);
+        // Already gone (404) is fine: the goal is that it no longer exists
+        await api.delete(`/payments/${pid}`).catch((e) => { if (e.response?.status !== 404) throw e; });
       }
       setReceipts(prev => prev.filter(x => x.id !== receiptObj.id));
       toast.success('Receipt canceled');

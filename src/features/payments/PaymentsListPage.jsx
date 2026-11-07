@@ -1,16 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Loader2, Clock } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { formatPKR, formatDate, formatDateTime, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import api from '../../lib/api';
+import { matchesText } from '../../lib/search';
+import { useConfirm } from '../../contexts/ConfirmContext';
+import { useToast } from '../../contexts/ToastContext';
 import '../../styles/payments.css';
 import '../../styles/loading.css';
 
 export default function PaymentsListPage() {
   const navigate = useNavigate();
   const [month, setMonth] = useState(getCurrentMonth());
-  const [year] = useState(getCurrentYear());
+  const [year, setYear] = useState(getCurrentYear());
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [deletingId, setDeletingId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState('newest');
@@ -33,7 +40,31 @@ export default function PaymentsListPage() {
     setPaymentsData(null);
     fetchTransactions();
     return () => { isMounted = false; };
-  }, [month, year]);
+  }, [month, year, reloadKey]);
+
+  // Deleting here removes the payment everywhere at once: income totals,
+  // revenue reports and the dashboard all read the payments table, and the
+  // server recalculates the member's expiry from what is left.
+  const handleDeletePayment = async (p) => {
+    const ok = await confirm({
+      title: 'Delete Payment',
+      message: `Delete ${formatPKR(p.amount)} from ${p.title} (${formatDate(p.date)})? It will be removed from income, reports and the member's history, and their expiry date will be recalculated.`,
+      confirmText: 'Delete',
+      type: 'danger',
+    });
+    if (!ok) return;
+    setDeletingId(p.id);
+    try {
+      await api.delete(`/payments/${p.payment_id}`);
+      toast.success('Payment deleted');
+      setPaymentsData(prev => (prev || []).filter(x => x.id !== p.id));
+      setReloadKey(k => k + 1);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete payment');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const loading = !paymentsData;
   const payments = paymentsData || [];
@@ -43,8 +74,7 @@ export default function PaymentsListPage() {
   const filtered = payments.filter(p => {
     if (!(filter === 'all' || p.type === filter)) return false;
     if (!q) return true;
-    const hay = `${p.title || ''} ${p.subtitle || ''} ${p.reason || ''} ${p.method || ''} ${p.title || ''}`.toLowerCase();
-    return hay.includes(q) || String(p.amount).includes(q);
+    return matchesText(`${p.title || ''} ${p.subtitle || ''} ${p.reason || ''} ${p.method || ''} ${p.amount} ${p.phone || ''}`, q);
   });
 
   // Sorting: when user chooses newest/oldest sort purely by date. Keep a fallback priority for equal dates.
@@ -93,9 +123,14 @@ export default function PaymentsListPage() {
         <button className="btn btn-primary btn-sm" onClick={() => navigate('/payments/add')}><Plus size={16} /> Log</button>
       </div>
 
-      <select className="form-select" style={{ marginBottom: 'var(--space-md)' }} value={month} onChange={e => setMonth(Number(e.target.value))}>
-        {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{getMonthName(i + 1)}</option>)}
-      </select>
+      <div style={{ display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
+        <select className="form-select" style={{ flex: 2 }} value={month} onChange={e => setMonth(Number(e.target.value))}>
+          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{getMonthName(i + 1)}</option>)}
+        </select>
+        <select className="form-select" style={{ flex: 1 }} value={year} onChange={e => setYear(Number(e.target.value))}>
+          {Array.from({ length: 4 }, (_, i) => getCurrentYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
 
       {/* Summary Box */}
       <div className="card" style={{ marginBottom: 'var(--space-md)', textAlign: 'center' }}>
@@ -170,6 +205,18 @@ export default function PaymentsListPage() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                   <span className="method" style={{ fontSize: 10, textTransform: 'uppercase' }}>{p.method}</span>
+                  {p.type === 'member_payment' && p.payment_id && (
+                    <button
+                      type="button"
+                      title="Delete payment"
+                      aria-label={`Delete payment from ${p.title}`}
+                      onClick={() => handleDeletePayment(p)}
+                      disabled={deletingId === p.id}
+                      style={{ background: 'none', border: 'none', color: 'var(--status-danger)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', opacity: deletingId === p.id ? 0.4 : 1 }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

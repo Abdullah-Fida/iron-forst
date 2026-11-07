@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Save, Calendar, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
+import { searchMembers } from '../../lib/search';
 import { todayStr, formatPKR, calculateExpiryDate, formatDate, formatDateTime } from '../../lib/utils';
 import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
@@ -33,6 +34,7 @@ export default function AddPaymentPage() {
   });
 
   const [search, setSearch] = useState('');
+  const allMembersRef = useRef(null);
   const [members, setMembers] = useState([]);
   const [selectedMember, setSelectedMember] = useState(null);
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -83,16 +85,13 @@ export default function AddPaymentPage() {
       setLoadingMembers(true);
       const timer = setTimeout(async () => {
         try {
-          const res = await api.get('/members', { params: { search: search.trim() } });
-          const allMembers = res.data.data || [];
-          const matches = allMembers.filter(m => {
-            if (m.status === 'deleted') return false;
-            const s = search.toLowerCase().trim();
-            const nameMatch = (m.name || '').toLowerCase().includes(s);
-            const phoneMatch = String(m.phone || '').includes(s);
-            return nameMatch || phoneMatch;
-          });
-          setMembers(matches.slice(0, 10));
+          // Loaded once, then searched here: the server's text search missed
+          // spelling variants, IDs and phone formats.
+          if (!allMembersRef.current) {
+            const res = await api.get('/members');
+            allMembersRef.current = (res.data.data || []).filter(m => m.status !== 'deleted');
+          }
+          setMembers(searchMembers(allMembersRef.current, search).slice(0, 10));
         } catch (err) {
           console.error('Search failed', err);
         } finally {
@@ -235,7 +234,8 @@ export default function AddPaymentPage() {
     try {
       const ids = receiptObj && receiptObj.ids && Array.isArray(receiptObj.ids) ? receiptObj.ids : [receiptObj.id];
       for (const pid of ids) {
-        await api.delete(`/payments/${pid}`);
+        // Already gone (404) is fine: the goal is that it no longer exists
+        await api.delete(`/payments/${pid}`).catch((e) => { if (e.response?.status !== 404) throw e; });
       }
       setReceipts(prev => prev.filter(x => x.id !== receiptObj.id));
       toast.success('Receipt canceled');

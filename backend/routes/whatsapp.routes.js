@@ -158,4 +158,44 @@ router.post('/send-bulk', async (req, res) => {
   });
 });
 
+// ── Automatic reminder settings ─────────────────────────
+const reminderSettings = require('../services/reminderSettings');
+const { planReminders, gymNow } = require('../services/reminderTargets');
+const { supabase } = require('../db/supabase');
+
+// GET /api/whatsapp/reminder-settings
+router.get('/reminder-settings', async (req, res) => {
+  const settings = await reminderSettings.getSettings(req.user.gym_id);
+  res.json({ success: true, data: settings, now: gymNow() });
+});
+
+// PUT /api/whatsapp/reminder-settings
+router.put('/reminder-settings', async (req, res) => {
+  const body = req.body || {};
+  if (body.startTime && body.endTime && body.startTime >= body.endTime) {
+    return res.status(400).json({ success: false, message: 'End time must be after start time' });
+  }
+  if (Array.isArray(body.days) && body.days.length === 0 && body.enabled !== false) {
+    return res.status(400).json({ success: false, message: 'Pick at least one day, or turn automatic reminders off' });
+  }
+  const saved = await reminderSettings.saveSettings(req.user.gym_id, body);
+  res.json({ success: true, data: saved, message: 'Reminder settings saved' });
+});
+
+// GET /api/whatsapp/reminder-preview — who the next automatic run would message
+router.get('/reminder-preview', async (req, res) => {
+  const { data: gym, error } = await supabase.from('gyms').select('*').eq('id', req.user.gym_id).single();
+  if (error) throw error;
+  const settings = await reminderSettings.getSettings(req.user.gym_id);
+  const { toSend, groups, skippedRecentlyMessaged } = await planReminders(gym, settings);
+  const slim = (m) => ({ id: m.id, name: m.name, phone: m.phone, days: m.days, expiry: m.expiry });
+  res.json({
+    success: true,
+    data: {
+      toSend: toSend.map((m) => ({ ...slim(m), message: m.message })),
+      counts: { dueSoon: groups.dueSoon.length, recent: groups.recent.length, older: groups.older.length, skippedRecentlyMessaged },
+    },
+  });
+});
+
 module.exports = router;

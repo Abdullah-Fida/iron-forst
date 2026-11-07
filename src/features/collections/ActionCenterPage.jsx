@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Send, CreditCard, Clock, Bell, CheckCircle2, Loader2, MessageSquare, X } from 'lucide-react';
+import { AlertTriangle, Send, CreditCard, Clock, Bell, CheckCircle2, Loader2, MessageSquare, X, Search } from 'lucide-react';
+import ReminderSettingsCard from './ReminderSettingsCard';
+import { searchMembers } from '../../lib/search';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -17,7 +19,9 @@ export default function ActionCenterPage() {
   const [sentHistory, setSentHistory] = useState([]);
   const [gymData, setGymData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('recent');
+  const [search, setSearch] = useState('');
+  const [waError, setWaError] = useState(null);
 
   // Baileys WhatsApp state
   const [waConfigured, setWaConfigured] = useState(false);
@@ -83,6 +87,7 @@ export default function ActionCenterPage() {
       if (res.data.success) {
         setWaStatus(res.data.data.status);
         setWaQrCode(res.data.data.qrCode);
+        setWaError(res.data.data.lastError || null);
         setWaConfigured(res.data.data.status === 'CONNECTED');
       }
     } catch (err) {
@@ -129,32 +134,42 @@ export default function ActionCenterPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const stats = useMemo(() => {
-    const overdue = members.filter(m => m.status === 'expired');
-    const dueSoon = members.filter(m => m.status === 'due_soon');
+  // Expired members split by how long ago their fee ended, so last month's
+  // people (most likely to renew) are not buried under those unpaid for
+  // months. Same 30-day line as the automatic reminders' default.
+  const overdueDays = (m) => {
+    const d = m.latest_expiry ? daysFromNow(m.latest_expiry) : null;
+    return d !== null && d < 0 ? -d : null;
+  };
+  const groups = useMemo(() => {
+    const expired = members.filter(m => m.status === 'expired' && overdueDays(m) !== null);
     return {
-      total: members.length + staffAlerts.length,
-      overdue: overdue.length,
-      dueSoon: dueSoon.length,
-      alerts: staffAlerts.length,
-      sent: sentHistory.length
+      recent: expired.filter(m => overdueDays(m) <= 30).sort((a, b) => overdueDays(a) - overdueDays(b)),
+      mid: expired.filter(m => overdueDays(m) > 30 && overdueDays(m) <= 90).sort((a, b) => overdueDays(a) - overdueDays(b)),
+      old: expired.filter(m => overdueDays(m) > 90).sort((a, b) => overdueDays(a) - overdueDays(b)),
+      dueSoon: members.filter(m => m.status === 'due_soon'),
     };
-  }, [members, staffAlerts, sentHistory]);
+  }, [members]);
+
+  const stats = useMemo(() => ({
+    recent: groups.recent.length,
+    mid: groups.mid.length,
+    old: groups.old.length,
+    dueSoon: groups.dueSoon.length,
+    alerts: staffAlerts.length,
+    sent: sentHistory.length
+  }), [groups, staffAlerts, sentHistory]);
 
   const displayedItems = useMemo(() => {
     if (filter === 'sent') return []; // Sent tab has its own rendering
     let items = [];
-    if (filter === 'all' || filter === 'overdue') {
-      items = [...items, ...members.filter(m => filter === 'overdue' ? m.status === 'expired' : true)];
-    }
-    if (filter === 'due_soon') {
-      items = [...items, ...members.filter(m => m.status === 'due_soon')];
-    }
-    if (filter === 'all' || filter === 'alerts') {
-      items = [...items, ...staffAlerts];
-    }
-    return items;
-  }, [members, staffAlerts, filter]);
+    if (filter === 'recent') items = groups.recent;
+    if (filter === 'mid') items = groups.mid;
+    if (filter === 'old') items = groups.old;
+    if (filter === 'due_soon') items = groups.dueSoon;
+    if (filter === 'alerts') return search.trim() ? staffAlerts.filter(a => (a.message_template || '').toLowerCase().includes(search.trim().toLowerCase())) : staffAlerts;
+    return search.trim() ? searchMembers(items, search) : items;
+  }, [groups, staffAlerts, filter, search]);
 
   // --- WhatsApp Actions ---
 
@@ -277,7 +292,11 @@ export default function ActionCenterPage() {
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
               {waConfigured
                 ? '✅ Connected — messages will be sent automatically.'
-                : '⚠️ Disconnected. Please scan the QR code to link your phone.'}
+                : waStatus === 'RECONNECTING'
+                  ? '🔄 Connection dropped — reconnecting automatically. No need to scan again.'
+                  : waStatus === 'INITIALIZING'
+                    ? 'Starting WhatsApp…'
+                    : `⚠️ Not linked. ${waError || 'Please scan the QR code to link your phone.'}`}
             </p>
           </div>
         </div>
@@ -287,28 +306,33 @@ export default function ActionCenterPage() {
               {waStatus === 'INITIALIZING' ? 'Loading QR...' : 'Scan QR Code'}
             </button>
           )}
-          {waStatus !== 'INITIALIZING' && (
+          {waStatus !== 'INITIALIZING' && waStatus !== 'RECONNECTING' && (
              <button className="btn btn-secondary btn-sm" onClick={handleWaLogout}>
                {waConfigured ? 'Disconnect' : 'Reset Connection'}
              </button>
           )}
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '6px 14px', borderRadius: '999px', fontWeight: 600 }}>
-            {waConfigured ? '🟢 Active' : (waStatus === 'INITIALIZING' ? '🟡 Starting...' : '🔴 Disconnected')}
+            {waConfigured ? '🟢 Active' : (waStatus === 'INITIALIZING' ? '🟡 Starting...' : waStatus === 'RECONNECTING' ? '🟡 Reconnecting...' : '🔴 Disconnected')}
           </div>
         </div>
       </div>
 
+      <ReminderSettingsCard />
+
       {/* ── Filters & Bulk Actions ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: 'var(--space-xl)' }}>
         <div className="filter-tabs">
-          <button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
-            All Actions ({stats.total})
-          </button>
-          <button className={`filter-tab ${filter === 'overdue' ? 'active' : ''}`} onClick={() => setFilter('overdue')}>
-            Collect Fee ({stats.overdue})
+          <button className={`filter-tab ${filter === 'recent' ? 'active' : ''}`} onClick={() => setFilter('recent')}>
+            Expired · Last 30 days ({stats.recent})
           </button>
           <button className={`filter-tab ${filter === 'due_soon' ? 'active' : ''}`} onClick={() => setFilter('due_soon')}>
             Due Soon ({stats.dueSoon})
+          </button>
+          <button className={`filter-tab ${filter === 'mid' ? 'active' : ''}`} onClick={() => setFilter('mid')}>
+            1–3 Months ({stats.mid})
+          </button>
+          <button className={`filter-tab ${filter === 'old' ? 'active' : ''}`} onClick={() => setFilter('old')}>
+            3+ Months ({stats.old})
           </button>
           <button className={`filter-tab ${filter === 'alerts' ? 'active' : ''}`} onClick={() => setFilter('alerts')}>
             Staff & Alerts ({stats.alerts})
@@ -321,10 +345,17 @@ export default function ActionCenterPage() {
         {filter !== 'alerts' && filter !== 'sent' && displayedItems.filter(i => i.itemType === 'member').length > 0 && (
           <button className="btn btn-whatsapp" onClick={handleBulkRemind} disabled={isBulkSending} style={{ boxShadow: '0 4px 12px rgba(37,211,102,0.3)' }}>
             {isBulkSending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-            Bulk Remind All ({displayedItems.filter(i => i.itemType === 'member').length})
+            Remind all shown ({displayedItems.filter(i => i.itemType === 'member').length})
           </button>
         )}
       </div>
+
+      {filter !== 'sent' && (
+        <div className="search-bar" style={{ marginBottom: 'var(--space-lg)' }}>
+          <Search />
+          <input placeholder="Search name, phone or ID in this list..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+      )}
 
       {/* ── Action Grid ── */}
       {loading ? (

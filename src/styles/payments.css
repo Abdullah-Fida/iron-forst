@@ -41,3 +41,41 @@
 .expiry-preview .icon { color: var(--status-info); }
 .expiry-preview .text { font-size: var(--font-sm); color: var(--text-secondary); }
 .expiry-preview .date { font-weight: 700; color: var(--text-primary); }
+
+/* ── Automatic reminder settings (Action Center) ── */
+.reminder-card { padding: 0; margin-bottom: var(--space-xl, 24px); overflow: hidden; }
+.reminder-card-head {
+  width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px 20px;
+  background: none; border: none; color: var(--text-primary); cursor: pointer; font: inherit;
+}
+.reminder-card-head h3 { margin: 0 0 2px; font-size: 16px; }
+.reminder-card-head p { margin: 0; font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reminder-card-icon {
+  width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-light); color: var(--accent-primary);
+}
+.reminder-card-body { padding: 4px 20px 20px; border-top: 1px solid var(--border-color); }
+.reminder-switch { display: flex; align-items: center; gap: 10px; margin: 16px 0; font-weight: 700; cursor: pointer; }
+.reminder-switch input { width: 20px; height: 20px; accent-color: var(--accent-primary); }
+.reminder-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 16px; }
+.reminder-hint { font-size: 12px; color: var(--text-muted); margin: -4px 0 16px; line-height: 1.5; }
+.reminder-days { display: flex; flex-wrap: wrap; gap: 8px; }
+.reminder-day {
+  min-width: 52px; padding: 8px 10px; border-radius: 10px; font-weight: 700; font-size: 13px;
+  border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-muted); cursor: pointer;
+}
+.reminder-day.on { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
+.reminder-day:disabled { opacity: 0.5; cursor: not-allowed; }
+.reminder-preview { margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--bg-tertiary); }
+.reminder-preview-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.reminder-preview-head .btn-text-only { margin-left: auto; }
+.reminder-preview .reminder-hint { margin: 0; }
+.reminder-preview-list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.reminder-preview-list li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-color); font-size: 13px; }
+.reminder-preview-list .overdue { color: var(--status-danger); font-weight: 700; white-space: nowrap; }
+.reminder-preview-list .due { color: var(--status-warning); font-weight: 700; white-space: nowrap; }
+@media (max-width: 480px) {
+  .reminder-card-head { padding: 14px 16px; }
+  .reminder-card-body { padding: 4px 16px 16px; }
+}

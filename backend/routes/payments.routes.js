@@ -74,7 +74,7 @@ router.get('/all-transactions', async (req, res) => {
     end = new Date(year, month, 0).toISOString().split('T')[0];
   }
 
-  let payQuery = supabase.from('payments').select('id, amount, payment_date, payment_method, plan_duration_months, created_at, members(name)').eq('gym_id', gymId);
+  let payQuery = supabase.from('payments').select('id, member_id, amount, payment_date, payment_method, plan_duration_months, notes, created_at, members(name, phone)').eq('gym_id', gymId);
   let expQuery = supabase.from('expenses').select('id, amount, expense_date, category, description, created_at').eq('gym_id', gymId);
   let staffQuery = supabase.from('staff_payments').select('id, staff_id, amount_paid, paid_date, payment_method, notes, created_at, staff(name, role)').eq('gym_id', gymId);
   let auditQuery = supabase.from('admin_notes').select('id, text, date, created_at').eq('gym_id', gymId).eq('admin', 'AuditLog');
@@ -102,6 +102,9 @@ router.get('/all-transactions', async (req, res) => {
     }
     transactions.push({
       id: `pay_${p.id}`,
+      payment_id: p.id,
+      member_id: p.member_id,
+      phone: p.members?.phone || '',
       type: 'member_payment',
       amount: p.amount,
       date: p.payment_date,
@@ -269,39 +272,74 @@ router.post('/', async (req, res) => {
 
 // ── DELETE /api/payments/:id ─── Delete payment
 router.delete('/:id', async (req, res) => {
-  const { data: payment } = await supabase.from('payments').select('*, members(name)').eq('id', req.params.id).eq('gym_id', req.user.gym_id).maybeSingle();
-  if (payment) {
-    await supabase.from('admin_notes').insert({
-      gym_id: req.user.gym_id,
-      admin: 'AuditLog',
-      date: new Date().toISOString(),
-      text: JSON.stringify({ action: 'DELETED', type: 'MEMBER_PAYMENT', amount: payment.amount, details: `Deleted payment invoice for ${payment.members?.name || 'Member'}` })
-    });
-  }
+  const gymId = req.user.gym_id;
+  const { data: payment, error: findError } = await supabase.from('payments').select('*, members(name, status)').eq('id', req.params.id).eq('gym_id', gymId).maybeSingle();
+  if (findError) throw findError;
+  if (!payment) return res.status(404).json({ success: false, message: 'Payment not found (it may already be deleted)' });
 
-  const { error } = await supabase.from('payments').delete().eq('id', req.params.id).eq('gym_id', req.user.gym_id);
+  const { error } = await supabase.from('payments').delete().eq('id', req.params.id).eq('gym_id', gymId);
   if (error) throw error;
 
-  // Recalculate the member's latest_expiry and status
-  if (payment && payment.member_id) {
-    const { data: remaining } = await supabase.from('payments')
-      .select('expiry_date, payment_date')
-      .eq('member_id', payment.member_id)
-      .eq('gym_id', req.user.gym_id);
-    
-    let newExpiry = null;
-    let newStatus = 'inactive';
+  await supabase.from('admin_notes').insert({
+    gym_id: gymId,
+    admin: 'AuditLog',
+    date: new Date().toISOString(),
+    text: JSON.stringify({ action: 'DELETED', type: 'MEMBER_PAYMENT', amount: payment.amount, details: `Deleted payment of ${payment.payment_date} for ${payment.members?.name || 'Member'}` })
+  });
 
-    if (remaining && remaining.length > 0) {
-      const sorted = remaining.sort((a,b) => new Date(b.expiry_date || b.payment_date) - new Date(a.expiry_date || a.payment_date));
-      newExpiry = sorted[0].expiry_date || sorted[0].payment_date;
-      newStatus = 'active'; 
+  // Revenue, reports, dashboards and pending fees all read the payments table
+  // live, so the row being gone is enough for them. What is stored elsewhere is
+  // the member's expiry/status and the expiry reminder, so those are rebuilt
+  // from the payments that remain.
+  let newExpiry = null;
+  if (payment.member_id) {
+    const { data: remaining, error: remainingError } = await supabase.from('payments')
+      .select('expiry_date, payment_date, plan_duration_months, notes')
+      .eq('member_id', payment.member_id)
+      .eq('gym_id', gymId);
+    if (remainingError) throw remainingError;
+
+    // Registration fees carry no membership period, so they don't set an expiry.
+    const typeOf = (p) => (String(p.notes || '').match(/payment_type:(\w+)/) || [])[1]
+      || (Number(p.plan_duration_months) > 0 || p.plan_duration_months === 'custom' ? 'membership' : 'other');
+    const periods = (remaining || [])
+      .filter((p) => ['membership', 'trial'].includes(typeOf(p)) && (p.expiry_date || p.payment_date))
+      .sort((a, b) => String(b.expiry_date || b.payment_date).localeCompare(String(a.expiry_date || a.payment_date)));
+
+    let newStatus = 'inactive';
+    if (periods.length > 0) {
+      newExpiry = periods[0].expiry_date || periods[0].payment_date;
+      newStatus = typeOf(periods[0]) === 'trial' ? 'trial' : 'active';
     }
 
-    await supabase.from('members').update({ latest_expiry: newExpiry, status: newStatus }).eq('id', payment.member_id).eq('gym_id', req.user.gym_id);
+    // A deleted member stays deleted; only the expiry is corrected.
+    const update = payment.members?.status === 'deleted' ? { latest_expiry: newExpiry } : { latest_expiry: newExpiry, status: newStatus };
+    await supabase.from('members').update(update).eq('id', payment.member_id).eq('gym_id', gymId);
+
+    // The expiry warning queued for the removed period would remind the member
+    // about a fee that no longer exists, so pending ones are rebuilt.
+    await supabase.from('notifications')
+      .delete()
+      .eq('gym_id', gymId)
+      .eq('member_id', payment.member_id)
+      .eq('notification_type', 'member_fee_expiry_warning')
+      .eq('status', 'pending');
+    if (newExpiry && payment.members?.status !== 'deleted') {
+      const warnDate = new Date(newExpiry);
+      warnDate.setDate(warnDate.getDate() - 3);
+      if (warnDate >= new Date(new Date().toISOString().split('T')[0])) {
+        await supabase.from('notifications').insert({
+          gym_id: gymId,
+          member_id: payment.member_id,
+          notification_type: 'member_fee_expiry_warning',
+          scheduled_for: warnDate.toISOString().split('T')[0],
+          status: 'pending',
+        });
+      }
+    }
   }
 
-  res.json({ success: true, message: 'Payment deleted and expiry recalculated' });
+  res.json({ success: true, message: 'Payment deleted and expiry recalculated', latest_expiry: newExpiry });
 });
 
 // ── GET /api/payments/revenue/:year ─── Monthly revenue summary

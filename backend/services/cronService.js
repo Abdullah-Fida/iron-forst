@@ -1,118 +1,115 @@
 const cron = require('node-cron');
 const { supabase } = require('../db/supabase');
 const whatsappService = require('./whatsappService');
+const reminderSettings = require('./reminderSettings');
+const { TZ, gymNow, planReminders } = require('./reminderTargets');
 
+/**
+ * Automatic WhatsApp fee reminders.
+ *
+ * Each gym chooses the hours and days messages may go out, who gets one, and
+ * how often (Action Center -> Reminder settings). Every minute this checks
+ * whether a gym is inside its window and has not had today's run yet.
+ *
+ * The old version fired once at exactly 09:00 and gave up if WhatsApp was not
+ * connected at that moment — which after any server restart it never was,
+ * because the WhatsApp session only started when someone opened the page.
+ * Now the session is started at boot, and a run that finds WhatsApp
+ * reconnecting simply tries again the next minute, until the window closes.
+ */
 class CronService {
     constructor() {
+        this.running = new Set();
         this.startAutomatedReminders();
+        // Bring saved WhatsApp sessions back up after a restart (non-blocking)
+        setTimeout(() => {
+            whatsappService.resumeSavedSessions().catch((err) => console.error('[WhatsApp] Resume failed:', err.message));
+        }, 15000);
     }
 
     startAutomatedReminders() {
-        // Run every day at 09:00 AM gym-local time. Without an explicit timezone
-        // node-cron uses the server clock, which is UTC on Render — that fired
-        // these reminders at 2 PM Pakistan time.
-        const timezone = process.env.CRON_TIMEZONE || 'Asia/Karachi';
-        cron.schedule('0 9 * * *', async () => {
-            console.log('--- Running automated 9 AM WhatsApp Reminders ---');
-            try {
-                // Fetch all gyms (multi-tenant)
-                const { data: gyms } = await supabase.from('gyms').select('*');
-                if (!gyms) return;
-
-                for (const gym of gyms) {
-                    await this.processGymReminders(gym);
-                }
-            } catch (err) {
-                console.error('Error running daily cron job:', err);
-            }
-        }, { timezone });
-
-        console.log(`[Cron] Daily WhatsApp reminders scheduled for 09:00 ${timezone}`);
+        cron.schedule('* * * * *', () => {
+            this.tick().catch((err) => console.error('[Reminders] Tick failed:', err.message));
+        }, { timezone: TZ });
+        console.log(`[Cron] WhatsApp reminders: checking every minute against each gym's schedule (${TZ})`);
     }
 
-    async processGymReminders(gym) {
-        // Only run if they have a WhatsApp connection
-        const waStatus = await whatsappService.getStatus(gym.id);
-        if (waStatus.status !== 'CONNECTED') return;
-
-        // Fetch expired members or due soon members for this gym
-        const { data: members, error } = await supabase
-            .from('members')
-            .select('*, payments(id, amount, payment_date, expiry_date)')
-            .eq('gym_id', gym.id)
-            .neq('status', 'deleted');
-
-        if (error || !members) return;
-
-        const today = new Date();
-        today.setHours(0,0,0,0);
-
-        const expiredMembers = members.filter(m => {
-            let actualExpiry = m.latest_expiry;
-            if (!actualExpiry && m.payments && m.payments.length > 0) {
-                const sorted = [...m.payments].sort((a,b) => new Date(b.expiry_date || b.payment_date) - new Date(a.expiry_date || a.payment_date));
-                actualExpiry = sorted[0].expiry_date || sorted[0].payment_date;
-            }
-            if (!actualExpiry || !m.phone) return false;
-
-            const target = new Date(actualExpiry);
-            target.setHours(0,0,0,0);
-            const days = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-            
-            // Only remind if they expired exactly today, or -3 days ago, etc.
-            // Let's remind if they are strictly expired by less than 7 days, or exactly due soon (3 days)
-            // Or just any expired member who hasn't been sent a reminder recently.
-            return days < 0 && days >= -14;
-        });
-
-        if (expiredMembers.length === 0) return;
-
-        // Check recent notifications to avoid spamming every day
-        const { data: recentNotifs } = await supabase
-            .from('notifications')
-            .select('member_id')
-            .eq('gym_id', gym.id)
-            .eq('notification_type', 'automated_reminder')
-            .gte('sent_at', new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()); // Sent in last 7 days
-
-        const notifiedSet = new Set((recentNotifs || []).map(n => n.member_id));
-        const membersToNotify = expiredMembers.filter(m => !notifiedSet.has(m.id));
-
-        if (membersToNotify.length === 0) return;
-
-        console.log(`[Cron] Gym ${gym.gym_name} - Sending ${membersToNotify.length} automated reminders.`);
-
-        const template = gym.wa_msg_expired || `Hello [Name], your membership at ${gym.gym_name} has expired. Please renew your membership.`;
-
-        const messages = membersToNotify.map(m => {
-            let msg = template
-                .replace(/\[Name\]/g, m.name)
-                .replace(/\[GymName\]/g, gym.gym_name || 'Our Gym');
-            return { phone: m.phone, message: msg, member: m };
-        });
-
-        // Send them sequentially
-        for (const msgObj of messages) {
+    async tick() {
+        const { data: gyms, error } = await supabase.from('gyms').select('*');
+        if (error || !gyms) return;
+        const now = gymNow();
+        for (const gym of gyms) {
+            if (this.running.has(gym.id)) continue;
+            let settings;
             try {
-                // Skip number check to avoid rate limiting for automated bulk sends
-                await whatsappService.sendMessage(gym.id, msgObj.phone, msgObj.message, { skipNumberCheck: true });
-                
-                // Log in notifications as sent
+                settings = await reminderSettings.getSettings(gym.id);
+            } catch (err) {
+                console.error(`[Reminders] Settings load failed for ${gym.gym_name}:`, err.message);
+                continue;
+            }
+            if (!this.isDue(settings, now)) continue;
+            this.running.add(gym.id);
+            this.processGymReminders(gym, settings, now)
+                .catch((err) => console.error(`[Reminders] ${gym.gym_name} failed:`, err.message))
+                .finally(() => this.running.delete(gym.id));
+        }
+    }
+
+    isDue(settings, now) {
+        return settings.enabled
+            && settings.days.includes(now.weekday)
+            && now.time >= settings.startTime
+            && now.time < settings.endTime
+            && settings.lastRunDate !== now.date;
+    }
+
+    async processGymReminders(gym, settings, now) {
+        const status = await whatsappService.getStatus(gym.id);
+        if (status.status !== 'CONNECTED') {
+            // Not today's run yet — try again next minute while the window is open
+            console.log(`[Reminders] ${gym.gym_name}: WhatsApp is ${status.status}, will retry`);
+            return;
+        }
+
+        const { toSend, groups, skippedRecentlyMessaged } = await planReminders(gym, settings);
+        // Claim today's run before sending, so a restart mid-run cannot send twice
+        await reminderSettings.saveSettings(gym.id, {}, {
+            lastRunDate: now.date,
+            lastRunSummary: { date: now.date, startedAt: new Date().toISOString(), planned: toSend.length, sent: 0, failed: 0, finished: false },
+        });
+
+        console.log(`[Reminders] ${gym.gym_name}: ${toSend.length} to send (due soon ${groups.dueSoon.length}, expired ≤${settings.expiredWithinDays}d ${groups.recent.length}, older ${groups.older.length} not messaged, ${skippedRecentlyMessaged} messaged recently)`);
+
+        let sent = 0;
+        let failed = 0;
+        let stoppedReason = null;
+        for (const m of toSend) {
+            if (gymNow().time >= settings.endTime) { stoppedReason = 'send window closed'; break; }
+            const current = await reminderSettings.getSettings(gym.id);
+            if (!current.enabled) { stoppedReason = 'turned off'; break; }
+            try {
+                await whatsappService.sendMessage(gym.id, m.phone, m.message, { skipNumberCheck: true, waitForConnectionMs: 60000 });
+                sent++;
                 await supabase.from('notifications').insert({
                     gym_id: gym.id,
-                    member_id: msgObj.member.id,
+                    member_id: m.id,
                     notification_type: 'automated_reminder',
-                    message_template: msgObj.message,
+                    message_template: m.message,
                     status: 'sent',
                     scheduled_for: new Date().toISOString(),
-                    sent_at: new Date().toISOString()
+                    sent_at: new Date().toISOString(),
                 });
-                
-                await new Promise(res => setTimeout(res, 5000)); // Delay to avoid ban (match bulk send)
             } catch (err) {
-                console.error(`[Cron] Failed to send to ${msgObj.phone}: ${err.message}`);
+                failed++;
+                console.error(`[Reminders] Failed for ${m.name} (${m.phone}): ${err.message}`);
             }
+            await new Promise((r) => setTimeout(r, settings.gapSeconds * 1000));
         }
+
+        await reminderSettings.saveSettings(gym.id, {}, {
+            lastRunSummary: { date: now.date, finishedAt: new Date().toISOString(), planned: toSend.length, sent, failed, finished: true, stoppedReason },
+        });
+        console.log(`[Reminders] ${gym.gym_name}: done — sent ${sent}, failed ${failed}${stoppedReason ? `, stopped: ${stoppedReason}` : ''}`);
     }
 }
 

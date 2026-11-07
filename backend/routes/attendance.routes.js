@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabase } = require('../db/supabase');
 const { authenticate, requireGymOwner } = require('../middleware/auth');
+const { claimFingerprint, fingerprintTakenMessage } = require('../services/memberIds');
 
 const router = express.Router();
 router.use(authenticate, requireGymOwner);
@@ -45,7 +46,7 @@ const injectFingerprintIntoNotes = (notes, fingerprintId) => {
 async function findFingerprintConflict(gymId, fingerprintId, memberId) {
   const direct = await supabase
     .from('members')
-    .select('id, name, notes, fingerprint_id')
+    .select('id, name, status, notes, fingerprint_id')
     .eq('gym_id', gymId)
     .eq('fingerprint_id', fingerprintId)
     .neq('id', memberId)
@@ -56,7 +57,7 @@ async function findFingerprintConflict(gymId, fingerprintId, memberId) {
 
   const fallback = await supabase
     .from('members')
-    .select('id, name, notes')
+    .select('id, name, status, notes')
     .eq('gym_id', gymId)
     .neq('id', memberId);
 
@@ -184,12 +185,15 @@ router.post('/fingerprint/enroll', async (req, res) => {
     return res.status(404).json({ success: false, message: 'Member not found' });
   }
 
+  // A deleted member still holding this ID gives it up; an active one blocks it.
+  const claim = await claimFingerprint(req.user.gym_id, fingerprint_id, member_id);
+  if (!claim.ok) {
+    return res.status(409).json({ success: false, message: fingerprintTakenMessage(fingerprint_id, claim.holder) });
+  }
+  // Old rows that kept the ID only in notes (before the column existed)
   const conflict = await findFingerprintConflict(req.user.gym_id, fingerprint_id, member_id);
-  if (conflict) {
-    return res.status(409).json({
-      success: false,
-      message: `Fingerprint ID already linked with ${conflict.name}`,
-    });
+  if (conflict && conflict.status !== 'deleted') {
+    return res.status(409).json({ success: false, message: fingerprintTakenMessage(fingerprint_id, conflict) });
   }
 
   const data = await assignFingerprintToMember(req.user.gym_id, member_id, fingerprint_id);
