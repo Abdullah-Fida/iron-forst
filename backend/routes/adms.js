@@ -35,13 +35,65 @@ const recentHits = [];
 let totalHits = 0;
 const bootedAt = new Date().toISOString();
 
-const getDeviceActivity = () => ({
-  serverTime: new Date().toISOString(),
-  bootedAt,
-  totalRequestsSinceBoot: totalHits,
-  lastRequest: recentHits[0] || null,
-  recent: recentHits,
-});
+// Only these devices may upload scans. The ZKTeco push protocol has no password:
+// the serial number in the URL is the only thing identifying the device, so an
+// upload from any other serial is ignored (an approved "scan" opens the door).
+const KNOWN_DEVICES = new Set(
+  String(process.env.DEVICE_SERIALS || 'UFS2261401174')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean),
+);
+const isKnownDevice = (sn) => KNOWN_DEVICES.has(String(sn || '').trim().toUpperCase());
+const rejected = { count: 0, lastAt: null };
+
+// What the device was doing, without anything that identifies it: this list is
+// served publicly on /device-status, so no serial number, URL or IP address.
+const describe = (hit) => {
+  const info = /[?&]INFO=([^&]*)/.exec(hit.path || '');
+  const out = {
+    at: hit.at,
+    method: hit.method,
+    kind: hit.table
+      ? `upload:${hit.table}`
+      : /options=/.test(hit.path || '') ? 'handshake' : /getrequest/.test(hit.path || '') ? 'poll' : 'other',
+    knownDevice: hit.knownDevice,
+  };
+  if (info) out.scansOnDevice = Number(decodeURIComponent(info[1]).split(',')[3]) || null;
+  for (const k of ['declaredBytes', 'receivedBytes', 'status', 'ms', 'closedWithoutReply', 'ignored']) {
+    if (hit[k] !== undefined) out[k] = hit[k];
+  }
+  return out;
+};
+
+const getDeviceActivity = () => {
+  const lastKnown = recentHits.find((h) => h.knownDevice);
+  return {
+    serverTime: new Date().toISOString(),
+    bootedAt,
+    totalRequestsSinceBoot: totalHits,
+    deviceLastSeen: lastKnown ? lastKnown.at : null,
+    rejectedUploadsFromUnknownDevices: rejected,
+    lastRequest: recentHits[0] ? describe(recentHits[0]) : null,
+    recent: recentHits.map(describe),
+  };
+};
+
+/**
+ * Data uploads (scans, logs) are only processed for a known device. Anything
+ * else still gets the plain "OK" a device expects, so nothing on the wire
+ * changes, but the data is dropped and counted.
+ */
+const requireKnownDevice = (req, res, next) => {
+  if (isKnownDevice(req.query.SN)) return next();
+  rejected.count += 1;
+  rejected.lastAt = new Date().toISOString();
+  if (req.deviceHit) req.deviceHit.ignored = 'unknown device';
+  console.warn(`[DEVICE] ⚠️ Ignored ${req.method} ${req.path} from unknown device SN=${req.query.SN || '(none)'}`);
+  // Drain the body so the connection is reused cleanly, then acknowledge
+  req.resume();
+  return plain(res, 'OK');
+};
 
 const traceDevice = (req, res, next) => {
   // Behind Render's proxy req.ip is the proxy itself, so prefer the forwarded
@@ -55,6 +107,7 @@ const traceDevice = (req, res, next) => {
     method: req.method,
     path: req.originalUrl,
     sn: req.query.SN || null,
+    knownDevice: isKnownDevice(req.query.SN),
     table: req.query.table || null,
     ip,
   };
@@ -122,7 +175,7 @@ iclockRouter.get('/cdata', (req, res) => {
 });
 
 // Attendance scans arrive here.
-iclockRouter.post('/cdata', rawText, handleAdmsEvent);
+iclockRouter.post('/cdata', requireKnownDevice, rawText, handleAdmsEvent);
 
 // The device long-polls this for commands to run. We have none to send, so an
 // empty OK is the correct answer — it keeps the loop alive.
@@ -143,7 +196,7 @@ iclockRouter.all('*', (req, res) => plain(res, 'OK'));
 // ── /adms — kept for devices configured against the older path ──────────────
 const admsRouter = express.Router();
 admsRouter.use(traceDevice);
-admsRouter.post('/', rawText, handleAdmsEvent);
+admsRouter.post('/', requireKnownDevice, rawText, handleAdmsEvent);
 admsRouter.get('/', (req, res) => plain(res, 'OK'));
 
 module.exports = { admsRouter, iclockRouter, getDeviceActivity };
