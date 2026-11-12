@@ -2,6 +2,12 @@
 
 .device-page { padding-bottom: 96px; }
 .device-btn-label { white-space: nowrap; }
+.device-btn-label.short { display: none; }
+@media (max-width: 480px) {
+  .device-btn-label.long { display: none; }
+  .device-btn-label.short { display: inline; }
+  .device-page .page-header .btn { flex-shrink: 0; }
+}
 
 .device-status {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;

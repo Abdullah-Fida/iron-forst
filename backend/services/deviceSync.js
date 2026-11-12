@@ -43,16 +43,18 @@ const cleanPin = (p) => {
 const isMissingTable = (err) =>
   !!err && (err.code === '42P01' || err.code === 'PGRST205' || /device_users/.test(String(err.message || '')));
 
-// ── Tunables ──────────────────────────────────────────────────────────────────
-const SEND_PER_POLL = 20;                 // commands handed over per poll
-const REPLY_TIMEOUT_MS = 3 * 60 * 1000;   // handed over but never confirmed
-const PICKUP_TIMEOUT_MS = 15 * 60 * 1000; // queued but the machine never asked
-const ONLINE_MS = 90 * 1000;              // seen this recently = online
-const PIN_QUERY_COOLDOWN_MS = 60 * 60 * 1000;
-const LIST_QUIET_MS = 20 * 1000;          // no new users for this long = list finished
-const LIST_WAIT_MS = 45 * 1000;           // answered "OK" but sent no users
-const FULL_SYNC_MAX_MS = 20 * 60 * 1000;
-const MAX_KEPT_COMMANDS = 1000;
+// ── Tunables (an object so tests can shorten the waits) ──────────────────────
+const T = {
+  SEND_PER_POLL: 20,                 // commands handed over per poll
+  REPLY_TIMEOUT_MS: 3 * 60 * 1000,   // handed over but never confirmed
+  PICKUP_TIMEOUT_MS: 15 * 60 * 1000, // queued but the machine never asked
+  ONLINE_MS: 90 * 1000,              // seen this recently = online
+  PIN_QUERY_COOLDOWN_MS: 60 * 60 * 1000,
+  LIST_QUIET_MS: 20 * 1000,          // no new users for this long = list finished
+  LIST_WAIT_MS: 45 * 1000,           // answered "OK" but sent no users
+  FULL_SYNC_MAX_MS: 20 * 60 * 1000,
+  MAX_KEPT_COMMANDS: 1000,
+};
 
 const COMMANDS = {
   queryAll: () => 'DATA QUERY USERINFO',
@@ -119,7 +121,7 @@ function addCommand(sn, kind, text, extra = {}) {
     ...extra,
   };
   state.commands.push(cmd);
-  if (state.commands.length > MAX_KEPT_COMMANDS) {
+  if (state.commands.length > T.MAX_KEPT_COMMANDS) {
     // Drop the oldest finished ones first
     const i = state.commands.findIndex((c) => c.status === 'done' || c.status === 'failed');
     state.commands.splice(i >= 0 ? i : 0, 1);
@@ -131,11 +133,11 @@ const isOpen = (c) => c.status === 'queued' || c.status === 'sent';
 
 function expireStale(now = Date.now()) {
   for (const c of state.commands) {
-    if (c.status === 'sent' && now - c.sentAt > REPLY_TIMEOUT_MS) {
+    if (c.status === 'sent' && now - c.sentAt > T.REPLY_TIMEOUT_MS) {
       c.status = 'failed';
       c.error = 'The machine took the command but never confirmed it.';
       c.doneAt = now;
-    } else if (c.status === 'queued' && now - c.createdAt > PICKUP_TIMEOUT_MS) {
+    } else if (c.status === 'queued' && now - c.createdAt > T.PICKUP_TIMEOUT_MS) {
       c.status = 'failed';
       c.error = 'The machine did not connect in time, so nothing was sent to it.';
       c.doneAt = now;
@@ -148,9 +150,10 @@ function takeCommands(sn, ip) {
   if (!isKnownDevice(sn)) return [];
   const now = Date.now();
   expireStale(now);
+  progress();
   const out = [];
   for (const c of state.commands) {
-    if (out.length >= SEND_PER_POLL) break;
+    if (out.length >= T.SEND_PER_POLL) break;
     if (c.sn === normSn(sn) && c.status === 'queued') {
       c.status = 'sent';
       c.sentAt = now;
@@ -213,7 +216,7 @@ function queuePinQuery(sn, pin, { force = false } = {}) {
   const p = cleanPin(pin);
   if (!p || p === '0') return null;
   const last = state.pinQueriedAt.get(p) || 0;
-  if (!force && Date.now() - last < PIN_QUERY_COOLDOWN_MS) return null;
+  if (!force && Date.now() - last < T.PIN_QUERY_COOLDOWN_MS) return null;
   if (state.commands.some((c) => isOpen(c) && c.kind === 'query_pin' && c.pin === p)) return null;
   state.pinQueriedAt.set(p, Date.now());
   return addCommand(sn, 'query_pin', COMMANDS.queryPin(p), { pin: p });
@@ -265,7 +268,7 @@ function progress() {
   const fs = state.fullSync;
   if (!fs || fs.status !== 'running') return;
   const now = Date.now();
-  if (now - fs.startedAt > FULL_SYNC_MAX_MS) {
+  if (now - fs.startedAt > T.FULL_SYNC_MAX_MS) {
     fs.status = fs.usersReceived ? 'done' : 'failed';
     fs.message = fs.usersReceived ? 'Stopped waiting for more users.' : 'The machine did not send its user list.';
     fs.finishedAt = now;
@@ -278,7 +281,7 @@ function progress() {
   const answeredAt = Math.max(0, ...cmds.map((c) => c.doneAt || 0));
 
   if (fs.usersReceived > 0) {
-    if (now - Math.max(fs.lastUserAt || 0, answeredAt) > LIST_QUIET_MS) {
+    if (now - Math.max(fs.lastUserAt || 0, answeredAt) > T.LIST_QUIET_MS) {
       fs.status = 'done';
       fs.finishedAt = now;
       fs.message = null;
@@ -286,7 +289,7 @@ function progress() {
     }
     return;
   }
-  if (now - answeredAt < LIST_WAIT_MS) return;
+  if (now - answeredAt < T.LIST_WAIT_MS) return;
 
   if (fs.stage === 'list') {
     // The machine did not send everyone at once: ask about each known ID instead.
@@ -581,7 +584,7 @@ function getStatus(sn = primaryDevice()) {
   const open = state.commands.filter((c) => c.sn === normSn(sn) && isOpen(c));
   return {
     configured: !!sn,
-    online: !!d.lastSeenAt && Date.now() - d.lastSeenAt < ONLINE_MS,
+    online: !!d.lastSeenAt && Date.now() - d.lastSeenAt < T.ONLINE_MS,
     lastSeenAt: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
     reported: d.info || null,
     read: fs
@@ -615,6 +618,7 @@ module.exports = {
   getCommands,
   getStatus,
   // for tests
+  _tunables: T,
   _parseRecords: parseRecords,
   _state: state,
   _drain: () => chain,

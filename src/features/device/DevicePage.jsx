@@ -27,6 +27,9 @@ const when = (iso) =>
     ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
     : '';
 
+// Privilege 14 = administrator on the machine (can open its settings menu)
+const isAdmin = (u) => Number(u.privilege) === 14;
+
 const displayName = (u) => u.member?.name || u.device_name || `Fingerprint ID ${u.pin}`;
 
 // When this person turned up: enrolled on the machine, scanned at the door, or listed
@@ -95,6 +98,11 @@ export default function DevicePage() {
       const done = cmds.filter((c) => c.status === 'done');
       const failed = cmds.filter((c) => c.status === 'failed');
       const membersDeleted = done.filter((c) => c.memberResult === 'deleted' || c.memberResult === 'already_deleted').length;
+      // The server restarted while waiting: those deletes were never sent
+      const lost = watching.filter((id) => !cmds.some((c) => c.id === id)).length;
+      if (lost) {
+        failed.push(...Array.from({ length: lost }, (_, i) => ({ id: `lost-${i}`, pin: '?', error: 'The server restarted before this was sent. Check the list and delete again if needed.' })));
+      }
       setWatching([]);
       setReport({ done, failed, membersDeleted, at: new Date().toISOString() });
       if (done.length && !failed.length) {
@@ -154,7 +162,9 @@ export default function DevicePage() {
   }, [section, filter, groups, search]);
 
   const selectable = !(section === 'machine' && filter === 'software');
-  const selectableRows = selectable ? rows.filter((u) => !pendingPins.has(u.pin)) : [];
+  // Machine admins are never bulk-selected: deleting the last one can open the
+  // machine's settings menu to anyone. They can still be deleted one at a time.
+  const selectableRows = selectable ? rows.filter((u) => !pendingPins.has(u.pin) && !isAdmin(u)) : [];
   const allSelected = selectableRows.length > 0 && selectableRows.every((u) => selected.has(u.pin));
 
   const toggle = (pin) => setSelected((s) => {
@@ -181,6 +191,7 @@ export default function DevicePage() {
   const deleteUsers = async (list) => {
     if (!list.length) return;
     const linked = list.filter((u) => u.member);
+    const admins = list.filter(isAdmin);
     const ok = await confirm({
       title: list.length === 1 ? `Delete ${displayName(list[0])} from the machine?` : `Delete ${list.length} users from the machine?`,
       message: (
@@ -202,6 +213,11 @@ export default function DevicePage() {
             </strong>
           )}
           {linked.length > 0 && ' Their payment history stays for your reports.'}
+          {admins.length > 0 && (
+            <strong className="device-confirm-warn">
+              {' '}{displayName(admins[0])} is an admin on the machine. Make sure another admin remains, or anyone can open the machine's settings.
+            </strong>
+          )}
         </span>
       ),
       confirmText: list.length === 1 ? 'Delete' : `Delete ${list.length}`,
@@ -278,7 +294,8 @@ export default function DevicePage() {
         </div>
         <button className="btn btn-secondary btn-sm" onClick={readFromMachine} disabled={busy || reading}>
           {reading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
-          <span className="device-btn-label">{reading ? 'Reading…' : 'Read users from machine'}</span>
+          <span className="device-btn-label long">{reading ? 'Reading…' : 'Read users from machine'}</span>
+          <span className="device-btn-label short">{reading ? 'Reading…' : 'Read users'}</span>
         </button>
       </div>
 
@@ -411,7 +428,8 @@ export default function DevicePage() {
                   className="device-check"
                   aria-label={`Select ${displayName(u)}`}
                   checked={selected.has(u.pin)}
-                  disabled={pending}
+                  disabled={pending || isAdmin(u)}
+                  title={isAdmin(u) ? 'Machine admins are deleted one at a time' : undefined}
                   onChange={() => toggle(u.pin)}
                 />
                 <div className="avatar device-pin" title="Fingerprint ID">{u.pin}</div>
@@ -423,6 +441,7 @@ export default function DevicePage() {
                     {nameOnMachineDiffers && <span className="member-tag">On machine: {u.device_name}</span>}
                     {u.fingers > 0 && <span className="member-tag">{plural(u.fingers, 'finger')}</span>}
                     {u.has_face && <span className="member-tag">Face</span>}
+                    {isAdmin(u) && <span className="member-tag missing">Machine admin</span>}
                     {u.dismissed && <span className="member-tag">Hidden</span>}
                   </div>
                   {section === 'new' && (
