@@ -8,7 +8,8 @@ import {
   LogOut,
   X,
   PlusCircle,
-  FileText
+  FileText,
+  ScanFace
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,6 +29,7 @@ export default function MoreDrawer({ isOpen, onClose }) {
     { icon: Receipt, label: 'Expenses', path: '/expenses', color: '#f87171' },
     { icon: UserSquare, label: 'Staff', path: '/staff', color: '#60a5fa' },
     { icon: CalendarCheck, label: 'Attendance', path: '/attendance', color: '#34d399' },
+    { icon: ScanFace, label: 'Machine', path: '/device', color: '#0891b2' },
     { icon: FileText, label: 'Reports', path: '/expenses/summary', color: '#fbbf24' },
     { icon: Settings, label: 'Settings', path: '/settings', color: '#8b5cf6' },
   ];

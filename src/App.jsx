@@ -52,6 +52,7 @@ import ActionCenterPage from './features/collections/ActionCenterPage';
 import SettingsPage from './features/settings/SettingsPage';
 import AttendancePage from './features/attendance/AttendancePage';
 import AttendanceScanner from './features/attendance/AttendanceScanner';
+import DevicePage from './features/device/DevicePage';
 
 // Protected Route — requires authentication
 function ProtectedRoute({ children }) {
@@ -99,6 +100,7 @@ function AppRoutes() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="attendance/scanner" element={<AttendanceScanner />} />
+        <Route path="device" element={<DevicePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

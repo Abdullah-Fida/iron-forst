@@ -6,7 +6,7 @@ import { initTheme } from './lib/theme'
 
 // ── Cache Buster: Force-clears stale Service Workers & caches on version change ──
 // Bump this version whenever you deploy a critical update
-const APP_CACHE_VERSION = 'v5'; // v5: cyan light theme + UI refresh (2026-11-08)
+const APP_CACHE_VERSION = 'v6'; // v6: fingerprint machine screen (2026-11-12)
 
 // Auto-purge interval: force re-check caches every 24 hours even if version matches
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours

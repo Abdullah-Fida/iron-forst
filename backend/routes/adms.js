@@ -1,5 +1,6 @@
 const express = require('express');
 const { handleAdmsEvent } = require('../controllers/fingerprintController');
+const deviceSync = require('../services/deviceSync');
 
 // ZKTeco sends its payloads as raw text, not JSON.
 const readText = express.text({ type: '*/*', limit: '2mb' });
@@ -38,14 +39,22 @@ const bootedAt = new Date().toISOString();
 // Only these devices may upload scans. The ZKTeco push protocol has no password:
 // the serial number in the URL is the only thing identifying the device, so an
 // upload from any other serial is ignored (an approved "scan" opens the door).
-const KNOWN_DEVICES = new Set(
-  String(process.env.DEVICE_SERIALS || 'UFS2261401174')
-    .split(',')
-    .map((s) => s.trim().toUpperCase())
-    .filter(Boolean),
-);
-const isKnownDevice = (sn) => KNOWN_DEVICES.has(String(sn || '').trim().toUpperCase());
+// The list (env DEVICE_SERIALS) lives in deviceSync, which also only ever
+// sends commands to these devices.
+const { isKnownDevice } = deviceSync;
 const rejected = { count: 0, lastAt: null };
+
+// The internet address the request came from. Behind Render's proxy req.ip is
+// the proxy itself, so the forwarded header carries the gym's real address.
+const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+
+// Raw text of an upload, whatever shape the body ended up in.
+const bodyText = (body) => {
+  if (typeof body === 'string') return body;
+  if (Buffer.isBuffer(body)) return body.toString();
+  if (body && typeof body === 'object' && Object.keys(body).length) return new URLSearchParams(body).toString();
+  return '';
+};
 
 // What the device was doing, without anything that identifies it: this list is
 // served publicly on /device-status, so no serial number, URL or IP address.
@@ -60,7 +69,7 @@ const describe = (hit) => {
     knownDevice: hit.knownDevice,
   };
   if (info) out.scansOnDevice = Number(decodeURIComponent(info[1]).split(',')[3]) || null;
-  for (const k of ['declaredBytes', 'receivedBytes', 'status', 'ms', 'closedWithoutReply', 'ignored']) {
+  for (const k of ['declaredBytes', 'receivedBytes', 'status', 'ms', 'closedWithoutReply', 'ignored', 'commandsSent']) {
     if (hit[k] !== undefined) out[k] = hit[k];
   }
   return out;
@@ -96,9 +105,12 @@ const requireKnownDevice = (req, res, next) => {
 };
 
 const traceDevice = (req, res, next) => {
-  // Behind Render's proxy req.ip is the proxy itself, so prefer the forwarded
-  // header to get the gym's actual public IP.
-  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  const ip = clientIp(req);
+  try {
+    deviceSync.noteSeen(req.query.SN, ip, req.query.INFO);
+  } catch (err) {
+    console.error('[DEVICE] noteSeen failed:', err.message);
+  }
 
   totalHits += 1;
   const startedAt = Date.now();
@@ -177,12 +189,38 @@ iclockRouter.get('/cdata', (req, res) => {
 // Attendance scans arrive here.
 iclockRouter.post('/cdata', requireKnownDevice, rawText, handleAdmsEvent);
 
-// The device long-polls this for commands to run. We have none to send, so an
-// empty OK is the correct answer — it keeps the loop alive.
-iclockRouter.all('/getrequest', (req, res) => plain(res, 'OK'));
+// The device long-polls this for commands to run. Usually there are none and
+// the answer is the plain OK that keeps the loop alive. When the owner asked
+// to read or delete users (Fingerprint machine screen), the commands go out
+// here, one "C:<id>:<command>" per line. Any problem falls back to OK.
+iclockRouter.all('/getrequest', (req, res) => {
+  let lines = [];
+  try {
+    lines = deviceSync.takeCommands(req.query.SN, clientIp(req));
+  } catch (err) {
+    console.error('[DEVICE] takeCommands failed:', err.message);
+  }
+  if (lines.length && req.deviceHit) req.deviceHit.commandsSent = lines.length;
+  return plain(res, lines.length ? lines.join('\n') : 'OK');
+});
 
 // Result of a command we issued. Acknowledge so the device clears its queue.
-iclockRouter.all('/devicecmd', rawText, (req, res) => plain(res, 'OK'));
+iclockRouter.all('/devicecmd', requireKnownDevice, rawText, (req, res) => {
+  try {
+    deviceSync.handleCommandResults(req.query.SN, bodyText(req.body), clientIp(req));
+  } catch (err) {
+    console.error('[DEVICE] command results failed:', err.message);
+  }
+  return plain(res, 'OK');
+});
+
+// Newer firmwares answer a user-list query here instead of /cdata.
+iclockRouter.post('/querydata', requireKnownDevice, rawText, (req, res) => {
+  const table = req.query.tablename || req.query.table || '';
+  if (req.deviceHit) req.deviceHit.table = `query:${table}`;
+  deviceSync.handleUpload(req.query.SN, table, bodyText(req.body));
+  return plain(res, 'OK');
+});
 
 iclockRouter.all('/ping', (req, res) => plain(res, 'OK'));
 iclockRouter.all('/registry', (req, res) => plain(res, `RegistryCode=${req.query.SN || 'OK'}`));

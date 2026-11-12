@@ -114,9 +114,43 @@ const phoneInUseMessage = (phone, holders) => {
 const fingerprintTakenMessage = (fp, holder) =>
   `Fingerprint ID ${clean(fp)} is already assigned to ${holder.name}. Use a different ID, or remove it from ${holder.name} first.`;
 
+/**
+ * The normal "Delete member": the member is hidden everywhere (status
+ * 'deleted') but payments stay for the income reports. Both IDs are freed for
+ * reuse and the old values kept in notes for the record.
+ *
+ * `expectFingerprint` guards the fingerprint-device delete: if the member's
+ * fingerprint ID changed since the delete was requested, nothing is touched.
+ * @returns {Promise<{ok: boolean, reason?: string, member?: object, already?: boolean}>}
+ */
+async function softDeleteMember(gymId, memberId, { expectFingerprint } = {}) {
+  const { data: member, error } = await supabase
+    .from('members')
+    .select('id, name, status, fingerprint_id, membership_id, notes')
+    .eq('id', memberId)
+    .eq('gym_id', gymId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!member) return { ok: false, reason: 'not_found' };
+  if (member.status === 'deleted') return { ok: true, member, already: true };
+  if (expectFingerprint !== undefined && clean(member.fingerprint_id) !== clean(expectFingerprint)) {
+    return { ok: false, reason: 'fingerprint_changed', member };
+  }
+
+  const update = { status: 'deleted', fingerprint_id: null, membership_id: null };
+  const fp = clean(member.fingerprint_id);
+  const mid = clean(member.membership_id);
+  const tags = `${fp ? `released_fingerprint_id:${fp};` : ''}${mid ? `released_membership_id:${mid};` : ''}`;
+  if (tags) update.notes = `${tags}${member.notes || ''}`;
+  const { error: updateError } = await supabase.from('members').update(update).eq('id', memberId).eq('gym_id', gymId);
+  if (updateError) throw updateError;
+  return { ok: true, member };
+}
+
 module.exports = {
   clean,
   isUniqueViolation,
+  softDeleteMember,
   releaseFingerprint,
   claimFingerprint,
   findMembershipIdHolder,

@@ -66,8 +66,14 @@ app.use(cors((req, callback) => {
   }
   callback(null, corsOptions);
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// The fingerprint machine's paths read their own raw text (routes/adms.js). If
+// the machine labels an upload as form data, parsing it here would turn its
+// line-per-record text into a jumbled object, so these parsers skip them.
+const isDevicePath = (req) => /^\/(iclock|adms)(\/|$)/i.test(req.path);
+const jsonBody = express.json({ limit: '10mb' });
+const formBody = express.urlencoded({ extended: true });
+app.use((req, res, next) => (isDevicePath(req) ? next() : jsonBody(req, res, next)));
+app.use((req, res, next) => (isDevicePath(req) ? next() : formBody(req, res, next)));
 
 // ── Sanitize Empty Strings to Undefined ────
 app.use((req, res, next) => {
@@ -111,6 +117,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/drafts', draftsRoutes);
 app.use('/api/live', liveRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/device', require('./routes/device.routes'));
 
 // ── ZKTeco ADMS Routes ────────────────
 // The whole /iclock tree is handed to one router. Mounting only /iclock/cdata

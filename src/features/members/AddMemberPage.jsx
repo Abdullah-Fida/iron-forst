@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, CreditCard, Calendar, ChevronRight, SkipForward, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { ArrowLeft, Save, CreditCard, Calendar, ChevronRight, SkipForward, Loader2, ScanFace } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { todayStr, calculateExpiryDate, formatDate, formatDateTime, formatPKR, getInitials } from '../../lib/utils';
@@ -10,9 +10,11 @@ import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
 import { generateId } from '../../lib/utils';
+import '../../styles/device.css';
 
 export default function AddMemberPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
@@ -52,7 +54,7 @@ export default function AddMemberPage() {
     newMember: null
   });
 
-  const { saveDraft, clearDraft } = useFormDraft('add-member', {}, (draft) => {
+  const { saveDraft, clearDraft, loadingDraft } = useFormDraft('add-member', {}, (draft) => {
     if (draft) {
       setForm(prev => ({
         ...prev,
@@ -69,6 +71,36 @@ export default function AddMemberPage() {
   }, [form, saveDraft]);
 
   const { memberForm, payForm, step, newMember } = form;
+
+  // Opened from the Fingerprint machine screen ("Add member"): start a fresh
+  // form with what the machine knows. Applied after any saved draft has
+  // loaded so the draft cannot overwrite it, and only once.
+  const prefill = location.state?.prefill;
+  const [fromDevice, setFromDevice] = useState(null);
+  const prefillApplied = useRef(false);
+  useEffect(() => {
+    if (!prefill || loadingDraft || prefillApplied.current) return;
+    prefillApplied.current = true;
+    setForm(prev => ({
+      ...prev,
+      step: 1,
+      newMember: null,
+      memberForm: {
+        name: prefill.name || '',
+        membership_id: '',
+        phone: '',
+        cnic: '',
+        gender: 'male',
+        join_date: todayStr(),
+        emergency_contact: '',
+        fingerprint_id: String(prefill.fingerprint_id || ''),
+        notes: '',
+      },
+    }));
+    setFromDevice(prefill);
+    // A page refresh should not wipe what has been typed since
+    navigate(location.pathname, { replace: true, state: null });
+  }, [prefill, loadingDraft, navigate, location.pathname]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -146,6 +178,7 @@ export default function AddMemberPage() {
       
       setNewMember(serverMember);
       toast.success(`${serverMember.name} added successfully!`);
+      if (serverMember.fingerprint_id) window.dispatchEvent(new Event('device-updated'));
       setStep(2);
     } catch (err) {
       console.error(err);
@@ -364,6 +397,16 @@ export default function AddMemberPage() {
           </div>
 
           <form onSubmit={handleMemberSubmit}>
+            {fromDevice && (
+              <div className="from-device-note">
+                <ScanFace size={18} />
+                <span>
+                  From the fingerprint machine: <strong>ID {fromDevice.fingerprint_id}</strong>
+                  {fromDevice.name ? <> · name on machine <strong>{fromDevice.name}</strong></> : null}.
+                  {' '}Add the phone number, save, then enter the fee.
+                </span>
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Full Name *</label>
               <input
@@ -435,11 +478,11 @@ export default function AddMemberPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Device PIN (Optional)</label>
+              <label className="form-label">Fingerprint ID (optional)</label>
               <input
                 className="form-input"
                 type="number"
-                placeholder="PIN from Fingerprint Device"
+                placeholder="ID given on the fingerprint machine"
                 value={memberForm.fingerprint_id || ''}
                 onChange={e => setMember('fingerprint_id', e.target.value)}
               />

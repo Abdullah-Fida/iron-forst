@@ -5,6 +5,7 @@ const { authenticate, requireGymOwner, ownGymOnly } = require('../middleware/aut
 const {
   clean,
   isUniqueViolation,
+  softDeleteMember,
   claimFingerprint,
   findMembershipIdHolder,
   fingerprintTakenMessage,
@@ -239,23 +240,12 @@ router.delete('/:id', async (req, res) => {
     // Soft delete member instead of unlinking/deleting, to preserve payment history names.
     // The fingerprint ID is released at the same time: a hidden member keeping it
     // blocked the ID from ever being given to anyone again (database unique index).
-    const { data: member, error: findError } = await supabase
-      .from('members')
-      .select('id, fingerprint_id, membership_id, notes')
-      .eq('id', memberId)
-      .eq('gym_id', gymId)
-      .maybeSingle();
-    if (findError) throw findError;
-    if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
-
-    // Both IDs are freed for reuse; the old values stay in notes for the record.
-    const update = { status: 'deleted', fingerprint_id: null, membership_id: null };
-    const fp = clean(member.fingerprint_id);
-    const mid = clean(member.membership_id);
-    const tags = `${fp ? `released_fingerprint_id:${fp};` : ''}${mid ? `released_membership_id:${mid};` : ''}`;
-    if (tags) update.notes = `${tags}${member.notes || ''}`;
-    const result = await supabase.from('members').update(update).eq('id', memberId).eq('gym_id', gymId);
-    error = result.error;
+    try {
+      const result = await softDeleteMember(gymId, memberId);
+      if (!result.ok) return res.status(404).json({ success: false, message: 'Member not found' });
+    } catch (e) {
+      error = e;
+    }
   }
   
   if (error) {

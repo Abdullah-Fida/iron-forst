@@ -1,5 +1,6 @@
 const fingerprintService = require('../services/fingerprintService');
 const blynkService = require('../services/blynkService');
+const deviceSync = require('../services/deviceSync');
 
 /**
  * Parses ADMS plain text body for KEY=VALUE pairs (used by OPTIONS table etc.)
@@ -156,6 +157,12 @@ const handleAdmsEvent = async (req, res) => {
           validation.status
         );
 
+        // 4b. A finger the machine knows but no member has: a new registration
+        // waiting to be added (Fingerprint machine screen). Runs in the background.
+        if (validation.status === 'MEMBER_NOT_FOUND') {
+          deviceSync.noteUnknownScan(deviceSerial, fingerprintId, scanTime);
+        }
+
         // 5. Emit SSE event for real-time UI update.
         //
         // Every scan is pushed, including one from a finger that matches no
@@ -202,8 +209,17 @@ const handleAdmsEvent = async (req, res) => {
       return res.send('OK');
     }
 
-    // ── OPERLOG / OPTIONS / other tables: just log and acknowledge ──
-    if (table === 'OPERLOG' || table === 'options') {
+    // ── OPERLOG / user lists / other tables: acknowledge at once ──
+    // User records and enrolment reports feed the Fingerprint machine screen.
+    // That work runs after the reply, so the device is never kept waiting.
+    if (table && table !== 'options') {
+      console.log(`📝 ${table} data received`);
+      deviceSync.handleUpload(deviceSerial, table, rawBody);
+      console.log('-------------------------------------\n');
+      res.set('Content-Type', 'text/plain');
+      return res.send('OK');
+    }
+    if (table === 'options') {
       console.log(`📝 ${table} data received (informational, no action needed)`);
       console.log('-------------------------------------\n');
       res.set('Content-Type', 'text/plain');

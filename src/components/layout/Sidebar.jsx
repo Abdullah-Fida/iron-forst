@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation, matchPath } from 'react-router-dom';
 import { 
   Home, Users, CreditCard, Bell, ClipboardList, 
   Dumbbell, Receipt, BarChart2, TrendingUp, Settings, 
-  DollarSign, LogOut, ChevronRight, CheckCircle, Fingerprint
+  DollarSign, LogOut, ChevronRight, CheckCircle, Fingerprint, ScanFace
 } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,6 +14,26 @@ export default function Sidebar() {
   const location = useLocation();
   const { logout, user } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
+  const [newOnDevice, setNewOnDevice] = useState(0);
+
+  // People enrolled on the fingerprint machine who are not members yet
+  useEffect(() => {
+    let isMounted = true;
+    const fetchNew = async () => {
+      try {
+        const res = await api.get('/device/new-count');
+        if (isMounted) setNewOnDevice(res.data.data?.count || 0);
+      } catch {
+        // the badge is a nice-to-have; the page itself shows any problem
+      }
+    };
+    fetchNew();
+    window.addEventListener('device-updated', fetchNew);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('device-updated', fetchNew);
+    };
+  }, [location.pathname]);
 
   useEffect(() => {
     let isMounted = true;
@@ -51,6 +71,7 @@ export default function Sidebar() {
         { path: '/dashboard', icon: Home, label: 'Dashboard' },
         { path: '/members', icon: Users, label: 'Members' },
         { path: '/attendance', icon: Fingerprint, label: 'Gate & Attendance' },
+        { path: '/device', icon: ScanFace, label: 'Fingerprint machine', badge: newOnDevice },
         { path: '/action-center', icon: Bell, label: 'Action Center', badge: pendingCount },
       ]
     },
